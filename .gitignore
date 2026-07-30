@@ -1,0 +1,14 @@
+**/bin/
+**/obj/
+artifacts/
+.vs/
+.idea/
+.vscode/
+*.user
+*.log
+*.pid
+*.p12
+*.pfx
+*.snk
+.env
+config.local.json

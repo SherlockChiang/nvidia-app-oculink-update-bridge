@@ -1,0 +1,67 @@
+name: Bug report
+description: Report an installation, service, status, or NVIDIA App update issue
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include the private loopback token, cookies, credentials, full
+        configuration files, or unrelated machine information.
+  - type: input
+    id: version
+    attributes:
+      label: Bridge version
+      placeholder: 4.0.0
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version and build
+      placeholder: Windows 11 24H2, build 26100.x
+    validations:
+      required: true
+  - type: input
+    id: nvidia_app
+    attributes:
+      label: NVIDIA App version
+    validations:
+      required: true
+  - type: input
+    id: gpu
+    attributes:
+      label: NVIDIA GPU and OCuLink hardware
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: What happened?
+      description: Include the exact error and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+    validations:
+      required: true
+  - type: textarea
+    id: status
+    attributes:
+      label: Sanitized Status.cmd output
+      description: Remove usernames, private paths, tokens, and unrelated details.
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety checks
+      options:
+        - label: I downloaded the package from this repository's GitHub Releases.
+          required: true
+        - label: I removed tokens, credentials, and private machine information.
+          required: true
+        - label: This is not a security vulnerability report.
+          required: true

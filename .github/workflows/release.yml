@@ -1,0 +1,189 @@
+name: Signed release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: SemVer without the leading v
+        required: true
+        default: 4.0.0
+        type: string
+      prerelease:
+        description: Publish as a prerelease
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+
+concurrency:
+  group: signed-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build, sign, verify, and publish
+    runs-on: windows-latest
+    timeout-minutes: 30
+    environment: release-signing
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate release request
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -ne 'refs/heads/main') {
+            throw 'Signed releases may only be created from main.'
+          }
+          .\build\Assert-SemVer.ps1 -Version $env:RELEASE_VERSION | Out-Null
+          $changelogPattern =
+            '^## ' + [regex]::Escape($env:RELEASE_VERSION) + '(?: -|$)'
+          if (-not (Select-String `
+            -LiteralPath .\CHANGELOG.md -Pattern $changelogPattern -Quiet)) {
+            throw 'CHANGELOG.md does not contain the requested version.'
+          }
+          if (git tag --list "v$env:RELEASE_VERSION") {
+            throw "Tag v$env:RELEASE_VERSION already exists."
+          }
+
+      - name: Install .NET SDK
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          dotnet-version: 10.0.302
+
+      - name: Restore and build
+        shell: pwsh
+        run: |
+          dotnet restore .\NvidiaAppOculinkShim.slnx
+          if ($LASTEXITCODE -ne 0) { throw 'dotnet restore failed.' }
+          dotnet format .\NvidiaAppOculinkShim.slnx `
+            --verify-no-changes --no-restore
+          if ($LASTEXITCODE -ne 0) { throw 'dotnet format failed.' }
+          dotnet build .\NvidiaAppOculinkShim.slnx `
+            --configuration Release --no-restore
+          if ($LASTEXITCODE -ne 0) { throw 'dotnet build failed.' }
+
+      - name: Run deterministic and live integration tests
+        shell: pwsh
+        run: |
+          dotnet run `
+            --project .\src\NvidiaAppOculinkShim\NvidiaAppOculinkShim.csproj `
+            --configuration Release --no-build -- --self-test
+          if ($LASTEXITCODE -ne 0) { throw 'Self-test failed.' }
+          .\tests\Invoke-IntegrationTest.ps1 -Configuration Release
+
+      - name: Parse every packaged PowerShell source
+        shell: pwsh
+        run: |
+          $failures = [Collections.Generic.List[string]]::new()
+          git ls-files -- '*.ps1' '*.psm1' | ForEach-Object {
+            $tokens = $null
+            $errors = $null
+            [Management.Automation.Language.Parser]::ParseFile(
+              $_,
+              [ref]$tokens,
+              [ref]$errors
+            ) | Out-Null
+            foreach ($error in $errors) {
+              $failures.Add("${_}: $($error.Message)")
+            }
+          }
+          if ($failures.Count -gt 0) {
+            throw ($failures -join "`n")
+          }
+
+      - name: Prepare unsigned release package
+        shell: pwsh
+        run: .\build\Publish-Package.ps1 -Version $env:RELEASE_VERSION
+
+      - name: Sign prepared release package
+        shell: pwsh
+        env:
+          SIGNING_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_BASE64 }}
+          SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:SIGNING_CERTIFICATE_BASE64)) {
+            throw 'WINDOWS_SIGNING_CERTIFICATE_BASE64 is not configured.'
+          }
+          if ([string]::IsNullOrWhiteSpace($env:SIGNING_CERTIFICATE_PASSWORD)) {
+            throw 'WINDOWS_SIGNING_CERTIFICATE_PASSWORD is not configured.'
+          }
+
+          $certificatePath = Join-Path $env:RUNNER_TEMP 'codesign.pfx'
+          try {
+            $bytes = [Convert]::FromBase64String(
+              $env:SIGNING_CERTIFICATE_BASE64
+            )
+            [IO.File]::WriteAllBytes($certificatePath, $bytes)
+
+            $securePassword = ConvertTo-SecureString `
+              $env:SIGNING_CERTIFICATE_PASSWORD -AsPlainText -Force
+            $name =
+              "NvidiaAppOculinkUpdateBridge-$env:RELEASE_VERSION-win-x64"
+            .\build\Sign-Package.ps1 `
+              -PackagePath ".\artifacts\package\$name" `
+              -SigningCertificatePath $certificatePath `
+              -SigningCertificatePassword $securePassword
+          } finally {
+            if (Test-Path -LiteralPath $certificatePath) {
+              Remove-Item -LiteralPath $certificatePath -Force
+            }
+          }
+
+      - name: Finalize and verify signed release assets
+        shell: pwsh
+        run: |
+          $name = "NvidiaAppOculinkUpdateBridge-$env:RELEASE_VERSION-win-x64"
+          .\build\Finalize-Package.ps1 `
+            -PackagePath ".\artifacts\package\$name" `
+            -ArchivePath ".\artifacts\$name.zip" `
+            -RequireSignature `
+            -RequireTimestamp
+          .\tests\Test-Package.ps1 `
+            -PackagePath ".\artifacts\package\$name" `
+            -ArchivePath ".\artifacts\$name.zip" `
+            -RequireSignature `
+            -RequireTimestamp
+
+      - name: Attest release ZIP provenance
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-path: |
+            artifacts/NvidiaAppOculinkUpdateBridge-*-win-x64.zip
+            artifacts/NvidiaAppOculinkUpdateBridge-*-win-x64.zip.sha256
+
+      - name: Create GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          $name = "NvidiaAppOculinkUpdateBridge-$env:RELEASE_VERSION-win-x64"
+          $arguments = @(
+            'release',
+            'create',
+            "v$env:RELEASE_VERSION",
+            ".\artifacts\$name.zip",
+            ".\artifacts\$name.zip.sha256",
+            '--title',
+            "NVIDIA App OCuLink Update Bridge v$env:RELEASE_VERSION",
+            '--generate-notes',
+            '--target',
+            $env:GITHUB_SHA
+          )
+          if ($env:PRERELEASE -eq 'true') {
+            $arguments += '--prerelease'
+          }
+          & gh @arguments
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub release creation failed.' }
