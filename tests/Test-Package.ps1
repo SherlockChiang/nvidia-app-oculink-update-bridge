@@ -41,6 +41,10 @@ $requiredFiles = @(
     'LICENSE',
     'SECURITY.md',
     'CHANGELOG.md',
+    'docs\github-release.zh-CN.md',
+    'docs\product-architecture.zh-CN.md',
+    'docs\release-status.zh-CN.md',
+    'docs\workflow.zh-CN.md',
     'BUILD-INFO.txt',
     'SHA256SUMS.txt'
 )
@@ -48,6 +52,22 @@ foreach ($relative in $requiredFiles) {
     $candidate = Join-Path $package $relative
     if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
         throw "Package file is missing: $relative"
+    }
+}
+$allowedPackagePaths = [Collections.Generic.HashSet[string]]::new(
+    [StringComparer]::OrdinalIgnoreCase
+)
+foreach ($relative in $requiredFiles) {
+    $allowedPackagePaths.Add($relative) | Out-Null
+}
+$allPackageFiles = @(Get-ChildItem -LiteralPath $package -Recurse -File)
+if ($allPackageFiles.Count -ne $allowedPackagePaths.Count) {
+    throw 'The package file set does not match the explicit allowlist.'
+}
+foreach ($file in $allPackageFiles) {
+    $relative = $file.FullName.Substring($package.Length + 1)
+    if (-not $allowedPackagePaths.Contains($relative)) {
+        throw "Unexpected package file: $relative"
     }
 }
 
@@ -96,7 +116,7 @@ foreach ($line in $manifest) {
     }
 }
 
-$packagedFiles = Get-ChildItem -LiteralPath $package -Recurse -File |
+$packagedFiles = $allPackageFiles |
     Where-Object Name -ne 'SHA256SUMS.txt'
 if ($packagedFiles.Count -ne $manifestPaths.Count) {
     throw 'The SHA-256 manifest does not cover every packaged file.'
@@ -114,18 +134,24 @@ $signedFiles = @(
     Get-ChildItem -LiteralPath $package -Recurse -File |
         Where-Object Extension -in @('.ps1', '.psm1')
 )
+$signatureByPath = @{}
 if ($RequireTimestamp) {
     $RequireSignature = $true
 }
 if ($RequireSignature) {
     $serviceSignature = Get-AuthenticodeSignature -LiteralPath $serviceBinary
+    $signatureByPath[$signedFiles[0].FullName] = $serviceSignature
     if (-not $serviceSignature.SignerCertificate) {
         throw 'The packaged service executable has no signer certificate.'
     }
     $expectedSignerThumbprint =
         $serviceSignature.SignerCertificate.Thumbprint
     foreach ($file in $signedFiles) {
-        $signature = Get-AuthenticodeSignature -LiteralPath $file.FullName
+        $signature = $signatureByPath[$file.FullName]
+        if (-not $signature) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $file.FullName
+            $signatureByPath[$file.FullName] = $signature
+        }
         if (
             $signature.Status -ne 'Valid' -or
             -not $signature.SignerCertificate -or
@@ -279,7 +305,13 @@ try {
     $zip.Dispose()
 }
 
-$serviceSignature = Get-AuthenticodeSignature -LiteralPath $serviceBinary
+foreach ($file in $signedFiles) {
+    if (-not $signatureByPath[$file.FullName]) {
+        $signatureByPath[$file.FullName] =
+            Get-AuthenticodeSignature -LiteralPath $file.FullName
+    }
+}
+$serviceSignature = $signatureByPath[$signedFiles[0].FullName]
 [pscustomobject]@{
     ManifestEntries = $manifest.Count
     ArchiveFileEntries = $archivePaths.Count
@@ -295,8 +327,7 @@ $serviceSignature = Get-AuthenticodeSignature -LiteralPath $serviceBinary
         $signedFiles |
             Where-Object Extension -in @('.ps1', '.psm1') |
             Where-Object {
-                (Get-AuthenticodeSignature -LiteralPath $_.FullName).Status -eq
-                    'Valid'
+                $signatureByPath[$_.FullName].Status -eq 'Valid'
             }
     ).Count
     PackageValid = $true

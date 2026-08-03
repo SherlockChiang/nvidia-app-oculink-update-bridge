@@ -28,7 +28,7 @@ jobs:
   release:
     name: Build, sign, verify, and publish
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     environment: release-signing
     env:
       RELEASE_VERSION: ${{ inputs.version }}
@@ -109,15 +109,20 @@ jobs:
 
       - name: Sign prepared release package
         shell: pwsh
+        timeout-minutes: 45
         env:
           SIGNING_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_BASE64 }}
           SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD }}
+          SIGNING_CERTIFICATE_THUMBPRINT: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_THUMBPRINT }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:SIGNING_CERTIFICATE_BASE64)) {
             throw 'WINDOWS_SIGNING_CERTIFICATE_BASE64 is not configured.'
           }
           if ([string]::IsNullOrWhiteSpace($env:SIGNING_CERTIFICATE_PASSWORD)) {
             throw 'WINDOWS_SIGNING_CERTIFICATE_PASSWORD is not configured.'
+          }
+          if ([string]::IsNullOrWhiteSpace($env:SIGNING_CERTIFICATE_THUMBPRINT)) {
+            throw 'WINDOWS_SIGNING_CERTIFICATE_THUMBPRINT is not configured.'
           }
 
           $certificatePath = Join-Path $env:RUNNER_TEMP 'codesign.pfx'
@@ -134,11 +139,21 @@ jobs:
             .\build\Sign-Package.ps1 `
               -PackagePath ".\artifacts\package\$name" `
               -SigningCertificatePath $certificatePath `
-              -SigningCertificatePassword $securePassword
+              -SigningCertificatePassword $securePassword `
+              -ExpectedSignerThumbprint $env:SIGNING_CERTIFICATE_THUMBPRINT
           } finally {
             if (Test-Path -LiteralPath $certificatePath) {
               Remove-Item -LiteralPath $certificatePath -Force
             }
+          }
+
+      - name: Remove temporary signing certificate
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          $certificatePath = Join-Path $env:RUNNER_TEMP 'codesign.pfx'
+          if (Test-Path -LiteralPath $certificatePath) {
+            Remove-Item -LiteralPath $certificatePath -Force
           }
 
       - name: Finalize and verify signed release assets

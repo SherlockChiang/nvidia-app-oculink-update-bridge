@@ -63,12 +63,14 @@ $signableFiles = @(
         Get-Item -LiteralPath $candidate
     }
 )
+$signatureByPath = @{}
 if ($RequireTimestamp) {
     $RequireSignature = $true
 }
 if ($RequireSignature) {
     $serviceSignature =
         Get-AuthenticodeSignature -LiteralPath $signableFiles[0].FullName
+    $signatureByPath[$signableFiles[0].FullName] = $serviceSignature
     if (-not $serviceSignature.SignerCertificate) {
         throw 'The service executable has no Authenticode signer certificate.'
     }
@@ -76,7 +78,12 @@ if ($RequireSignature) {
         $serviceSignature.SignerCertificate.Thumbprint
     $signatureFailures = @(
         foreach ($file in $signableFiles) {
-            $signature = Get-AuthenticodeSignature -LiteralPath $file.FullName
+            $signature = $signatureByPath[$file.FullName]
+            if (-not $signature) {
+                $signature =
+                    Get-AuthenticodeSignature -LiteralPath $file.FullName
+                $signatureByPath[$file.FullName] = $signature
+            }
             if (
                 $signature.Status -ne 'Valid' -or
                 -not $signature.SignerCertificate -or
@@ -134,8 +141,13 @@ $archiveHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
     [Text.UTF8Encoding]::new($false)
 )
 
-$serviceSignature = Get-AuthenticodeSignature `
-    -LiteralPath (Join-Path $package $signableRelativePaths[0])
+foreach ($file in $signableFiles) {
+    if (-not $signatureByPath[$file.FullName]) {
+        $signatureByPath[$file.FullName] =
+            Get-AuthenticodeSignature -LiteralPath $file.FullName
+    }
+}
+$serviceSignature = $signatureByPath[$signableFiles[0].FullName]
 [pscustomobject]@{
     Package = $package
     Archive = $archive
@@ -152,8 +164,7 @@ $serviceSignature = Get-AuthenticodeSignature `
         $signableFiles |
             Where-Object Extension -in @('.ps1', '.psm1') |
             Where-Object {
-                (Get-AuthenticodeSignature -LiteralPath $_.FullName).Status -eq
-                    'Valid'
+                $signatureByPath[$_.FullName].Status -eq 'Valid'
             }
     ).Count
 } | Format-List

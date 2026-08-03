@@ -6,6 +6,8 @@ param(
     [string]$SigningCertificatePath,
     [Parameter(Mandatory)]
     [Security.SecureString]$SigningCertificatePassword,
+    [Parameter(Mandatory)]
+    [string]$ExpectedSignerThumbprint,
     [AllowEmptyString()]
     [string]$TimestampServer = 'http://timestamp.digicert.com'
 )
@@ -14,6 +16,12 @@ $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $artifactsRoot = Join-Path $repositoryRoot 'artifacts'
 $packageParent = Join-Path $artifactsRoot 'package'
+$normalizedExpectedThumbprint = (
+    $ExpectedSignerThumbprint -replace '\s', ''
+).ToUpperInvariant()
+if ($normalizedExpectedThumbprint -notmatch '^[A-F0-9]{40}$') {
+    throw 'ExpectedSignerThumbprint must be a 40-digit SHA-1 certificate thumbprint.'
+}
 $package = (Resolve-Path -LiteralPath $PackagePath).Path
 $packagePrefix = [IO.Path]::GetFullPath($packageParent).TrimEnd('\') + '\'
 if (-not $package.StartsWith(
@@ -85,8 +93,17 @@ try {
     if (-not $certificate.HasPrivateKey) {
         throw 'The signing certificate does not contain a private key.'
     }
-    $expectedSignerThumbprint = $certificate.Thumbprint
+    $expectedSignerThumbprint = $certificate.Thumbprint.ToUpperInvariant()
+    if ($expectedSignerThumbprint -ne $normalizedExpectedThumbprint) {
+        throw (
+            'The supplied PFX does not match ExpectedSignerThumbprint. ' +
+            "Expected $normalizedExpectedThumbprint; got $expectedSignerThumbprint."
+        )
+    }
     foreach ($file in $signableFiles) {
+        $relativePath = $file.FullName.Substring($package.Length + 1)
+        Write-Output "Signing $relativePath ..."
+        $stopwatch = [Diagnostics.Stopwatch]::StartNew()
         $signatureParameters = @{
             LiteralPath = $file.FullName
             Certificate = $certificate
@@ -96,6 +113,7 @@ try {
             $signatureParameters.TimestampServer = $TimestampServer
         }
         $signature = Set-AuthenticodeSignature @signatureParameters
+        $stopwatch.Stop()
         if (
             $signature.Status -ne 'Valid' -or
             -not $signature.SignerCertificate -or
@@ -110,26 +128,12 @@ try {
         ) {
             throw "The signature was not timestamped: $($file.Name)"
         }
+        Write-Output (
+            "Signed $relativePath in {0:N1}s." -f $stopwatch.Elapsed.TotalSeconds
+        )
     }
 } finally {
     $certificate.Dispose()
-}
-
-foreach ($file in $signableFiles) {
-    $signature = Get-AuthenticodeSignature -LiteralPath $file.FullName
-    if (
-        $signature.Status -ne 'Valid' -or
-        -not $signature.SignerCertificate -or
-        $signature.SignerCertificate.Thumbprint -ne $expectedSignerThumbprint
-    ) {
-        throw "Signature validation failed for $($file.Name): $($signature.Status)"
-    }
-    if (
-        -not [string]::IsNullOrWhiteSpace($TimestampServer) -and
-        -not $signature.TimeStamperCertificate
-    ) {
-        throw "Timestamp validation failed for $($file.Name)"
-    }
 }
 
 [pscustomobject]@{

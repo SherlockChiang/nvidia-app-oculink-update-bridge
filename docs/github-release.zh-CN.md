@@ -23,7 +23,9 @@ PowerShell 文件则必须全部签名。
 该 Environment 中配置：
 
 - `WINDOWS_SIGNING_CERTIFICATE_BASE64`：PFX 文件的 Base64 内容；
-- `WINDOWS_SIGNING_CERTIFICATE_PASSWORD`：PFX 密码。
+- `WINDOWS_SIGNING_CERTIFICATE_PASSWORD`：PFX 密码；
+- `WINDOWS_SIGNING_CERTIFICATE_THUMBPRINT`：预期发布叶证书的 40 位 SHA-1
+  thumbprint，可包含空格。
 
 PFX、密码和私钥不得提交到仓库。工作流只将 PFX 写入 GitHub 托管 runner 的临时
 目录，并在签名步骤的 `finally` 中删除；runner 任务结束后也会被销毁。checkout
@@ -31,6 +33,8 @@ PFX、密码和私钥不得提交到仓库。工作流只将 PFX 写入 GitHub �
 构建、测试和未签名组包在 Secrets 注入前完成；持有 PFX 的步骤只对固定白名单中的
 既有 EXE/PowerShell 文件签名，不执行 `dotnet`、项目程序或安装脚本；离开该步骤后
 才重新生成清单和 ZIP。
+工作流会在签名前校验 PFX 叶证书指纹，并在签名步骤后以独立清理步骤
+删除 runner 上的临时 PFX。
 
 ## 发布操作
 

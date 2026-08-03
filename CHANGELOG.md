@@ -9,6 +9,13 @@ All notable changes to this project are documented in this file. Versions use
 
 - Run the expensive ephemeral Authenticode pipeline self-test on scheduled and
   manually dispatched CI runs while keeping signed releases fully gated.
+- Give signed releases enough time for Windows trust validation, while bounding
+  the certificate-bearing step separately and cleaning its temporary PFX.
+
+### Security
+
+- Pin signed releases to an expected leaf-certificate thumbprint and reject
+  unexpected files in the package allowlist.
 
 ## 4.0.0 - 2026-08-03
 

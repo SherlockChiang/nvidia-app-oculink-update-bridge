@@ -115,10 +115,29 @@ try {
         }
     }
 
+    $thumbprintMismatchRejected = $false
+    try {
+        & (Join-Path $repositoryRoot 'build\Sign-Package.ps1') `
+            -PackagePath $packageRoot `
+            -SigningCertificatePath $pfxPath `
+            -SigningCertificatePassword $securePassword `
+            -ExpectedSignerThumbprint ('0' * 40) `
+            -TimestampServer ''
+    } catch {
+        if ($_.Exception.Message -notmatch 'does not match') {
+            throw
+        }
+        $thumbprintMismatchRejected = $true
+    }
+    if (-not $thumbprintMismatchRejected) {
+        throw 'The signing pipeline accepted an unexpected certificate thumbprint.'
+    }
+
     & (Join-Path $repositoryRoot 'build\Sign-Package.ps1') `
         -PackagePath $packageRoot `
         -SigningCertificatePath $pfxPath `
         -SigningCertificatePassword $securePassword `
+        -ExpectedSignerThumbprint $certificate.Thumbprint `
         -TimestampServer ''
     & (Join-Path $repositoryRoot 'build\Finalize-Package.ps1') `
         -PackagePath $packageRoot `
