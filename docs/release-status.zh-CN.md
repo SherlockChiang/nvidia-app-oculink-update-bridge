@@ -13,6 +13,11 @@
 - 非 NVIDIA browser Origin 返回 403，非元数据路径返回 404；
 - 服务二进制、配置、两份 NVIDIA 原始备份均记录 SHA-256；
 - connected NVIDIA GPU 的 `dIDa` 从 PnP Instance ID 动态推导。
+- 公开 GitHub 仓库已建立；`main` 要求 CI 和 PR 审批，并禁止强推/删除；
+- Private vulnerability reporting、Dependabot 漏洞警报/安全修复、secret
+  scanning 和 push protection 均已开启；
+- Actions 只允许固定 SHA 的 GitHub 官方 Action，`release-signing` Environment
+  只允许 `main` 且需账号审批。
 
 ## 公开发布前仍需
 
@@ -23,7 +28,6 @@
 - 测试 Win11 Insider、休眠恢复、断网恢复和系统重启；
 - 覆盖多张 NVIDIA 桌面卡、双 NVIDIA GPU 和不同 OCuLink 控制器；
 - 用下一次 NVIDIA App 自升级验证 schema-aware repair；
-- 完成首次 GitHub 建库、分支保护和 Private vulnerability reporting 设置；
 - 决定正式图标和后续版本更新渠道。
 
 仓库已经包含 MIT 许可证、无遥测说明、CI 与强制签名 Release 工作流。当前本地和
