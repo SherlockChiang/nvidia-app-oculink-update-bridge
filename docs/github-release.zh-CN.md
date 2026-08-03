@@ -4,6 +4,9 @@
 
 CI 在普通 push 和 pull request 上生成未签名 ZIP，仅供自动化验证和开发测试。它会
 在 Actions 中保留 14 天，但不应作为面向普通 Win11 用户的安装包传播。
+使用临时自签证书的签名管线全链路自测仅在每周定时任务和手动调度时
+运行；这避免 Windows WinTrust 重复校验拖慢每次提交，不改变正式发布的
+强制签名门禁。
 
 正式 GitHub Release 只由手动 `Signed release` 工作流创建。该工作流会重新构建、
 运行本地自测和 NVIDIA 在线元数据集成测试、签名服务 EXE 及所有 PowerShell 安装

@@ -5,6 +5,11 @@ All notable changes to this project are documented in this file. Versions use
 
 ## Unreleased
 
+### Changed
+
+- Run the expensive ephemeral Authenticode pipeline self-test on scheduled and
+  manually dispatched CI runs while keeping signed releases fully gated.
+
 ## 4.0.0 - 2026-08-03
 
 ### Added
