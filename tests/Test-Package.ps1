@@ -5,12 +5,59 @@ param(
     [Parameter(Mandatory)]
     [string]$ArchivePath,
     [switch]$RequireSignature,
-    [switch]$RequireTimestamp
+    [switch]$RequireTimestamp,
+    [string]$UntrustedTestRootCertificatePath,
+    [string]$ExpectedTestSignerThumbprint
 )
 
 $ErrorActionPreference = 'Stop'
+$repositoryRoot = Split-Path -Parent $PSScriptRoot
 $package = (Resolve-Path -LiteralPath $PackagePath).Path
 $archive = (Resolve-Path -LiteralPath $ArchivePath).Path
+$useUntrustedTestRoot =
+    -not [string]::IsNullOrWhiteSpace($UntrustedTestRootCertificatePath)
+$hasExpectedTestSigner =
+    -not [string]::IsNullOrWhiteSpace($ExpectedTestSignerThumbprint)
+if ($useUntrustedTestRoot -ne $hasExpectedTestSigner) {
+    throw (
+        'UntrustedTestRootCertificatePath and ExpectedTestSignerThumbprint ' +
+        'must be supplied together.'
+    )
+}
+$normalizedExpectedTestSigner = if ($hasExpectedTestSigner) {
+    ($ExpectedTestSignerThumbprint -replace '\s', '').ToUpperInvariant()
+} else {
+    $null
+}
+if (
+    $hasExpectedTestSigner -and
+    $normalizedExpectedTestSigner -notmatch '^[A-F0-9]{40}$'
+) {
+    throw 'ExpectedTestSignerThumbprint must be a 40-digit SHA-1 thumbprint.'
+}
+if ($useUntrustedTestRoot -and $RequireTimestamp) {
+    throw 'An untrusted test root cannot satisfy timestamped release checks.'
+}
+$resolvedTestRootCertificatePath = $null
+$testSignatureValidator = $null
+if ($useUntrustedTestRoot) {
+    $resolvedTestRootCertificatePath =
+        (Resolve-Path -LiteralPath $UntrustedTestRootCertificatePath).Path
+    $repositoryPrefix =
+        [IO.Path]::GetFullPath($repositoryRoot).TrimEnd('\') + '\'
+    if ($resolvedTestRootCertificatePath.StartsWith(
+        $repositoryPrefix,
+        [StringComparison]::OrdinalIgnoreCase
+    )) {
+        throw 'The untrusted test root must not be stored inside the repository.'
+    }
+    $testSignatureValidator =
+        Join-Path $PSScriptRoot 'Assert-UntrustedTestSignature.ps1'
+    if (-not (Test-Path -LiteralPath $testSignatureValidator -PathType Leaf)) {
+        throw 'The untrusted Authenticode test validator is missing.'
+    }
+    $RequireSignature = $true
+}
 $reparsePoints = @(
     Get-ChildItem -LiteralPath $package -Recurse -Force |
         Where-Object {
@@ -144,15 +191,29 @@ if ($RequireSignature) {
     if (-not $serviceSignature.SignerCertificate) {
         throw 'The packaged service executable has no signer certificate.'
     }
-    $expectedSignerThumbprint =
-        $serviceSignature.SignerCertificate.Thumbprint
+    $serviceSignerThumbprint =
+        $serviceSignature.SignerCertificate.Thumbprint.ToUpperInvariant()
+    $expectedSignerThumbprint = if ($useUntrustedTestRoot) {
+        if ($serviceSignerThumbprint -ne $normalizedExpectedTestSigner) {
+            throw 'The service signer does not match the expected test certificate.'
+        }
+        $normalizedExpectedTestSigner
+    } else {
+        $serviceSignerThumbprint
+    }
     foreach ($file in $signedFiles) {
         $signature = $signatureByPath[$file.FullName]
         if (-not $signature) {
             $signature = Get-AuthenticodeSignature -LiteralPath $file.FullName
             $signatureByPath[$file.FullName] = $signature
         }
-        if (
+        if ($useUntrustedTestRoot) {
+            & $testSignatureValidator `
+                -Signature $signature `
+                -ExpectedSignerThumbprint $expectedSignerThumbprint `
+                -RootCertificatePath $resolvedTestRootCertificatePath `
+                -FileName $file.Name
+        } elseif (
             $signature.Status -ne 'Valid' -or
             -not $signature.SignerCertificate -or
             $signature.SignerCertificate.Thumbprint -ne
@@ -327,6 +388,7 @@ $serviceSignature = $signatureByPath[$signedFiles[0].FullName]
         $signedFiles |
             Where-Object Extension -in @('.ps1', '.psm1') |
             Where-Object {
+                $useUntrustedTestRoot -or
                 $signatureByPath[$_.FullName].Status -eq 'Valid'
             }
     ).Count

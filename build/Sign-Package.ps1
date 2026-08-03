@@ -8,6 +8,7 @@ param(
     [Security.SecureString]$SigningCertificatePassword,
     [Parameter(Mandatory)]
     [string]$ExpectedSignerThumbprint,
+    [string]$UntrustedTestRootCertificatePath,
     [AllowEmptyString()]
     [string]$TimestampServer = 'http://timestamp.digicert.com'
 )
@@ -21,6 +22,14 @@ $normalizedExpectedThumbprint = (
 ).ToUpperInvariant()
 if ($normalizedExpectedThumbprint -notmatch '^[A-F0-9]{40}$') {
     throw 'ExpectedSignerThumbprint must be a 40-digit SHA-1 certificate thumbprint.'
+}
+$useUntrustedTestRoot =
+    -not [string]::IsNullOrWhiteSpace($UntrustedTestRootCertificatePath)
+if (
+    $useUntrustedTestRoot -and
+    -not [string]::IsNullOrWhiteSpace($TimestampServer)
+) {
+    throw 'An untrusted test root cannot be combined with timestamping.'
 }
 $package = (Resolve-Path -LiteralPath $PackagePath).Path
 $packagePrefix = [IO.Path]::GetFullPath($packageParent).TrimEnd('\') + '\'
@@ -39,6 +48,29 @@ if ($certificatePath.StartsWith(
     [StringComparison]::OrdinalIgnoreCase
 )) {
     throw 'The signing certificate must not be stored inside the repository.'
+}
+$resolvedTestRootCertificatePath = $null
+$testSignatureValidator = $null
+if ($useUntrustedTestRoot) {
+    $resolvedTestRootCertificatePath =
+        (Resolve-Path -LiteralPath $UntrustedTestRootCertificatePath).Path
+    if ($resolvedTestRootCertificatePath.StartsWith(
+        $repositoryPrefix,
+        [StringComparison]::OrdinalIgnoreCase
+    )) {
+        throw 'The untrusted test root must not be stored inside the repository.'
+    }
+    if ($resolvedTestRootCertificatePath.Equals(
+        $certificatePath,
+        [StringComparison]::OrdinalIgnoreCase
+    )) {
+        throw 'The signing PFX cannot also be the untrusted test root.'
+    }
+    $testSignatureValidator =
+        Join-Path $repositoryRoot 'tests\Assert-UntrustedTestSignature.ps1'
+    if (-not (Test-Path -LiteralPath $testSignatureValidator -PathType Leaf)) {
+        throw 'The untrusted Authenticode test validator is missing.'
+    }
 }
 
 if (-not [string]::IsNullOrWhiteSpace($TimestampServer)) {
@@ -112,9 +144,18 @@ try {
         if (-not [string]::IsNullOrWhiteSpace($TimestampServer)) {
             $signatureParameters.TimestampServer = $TimestampServer
         }
+        if ($useUntrustedTestRoot) {
+            $signatureParameters.IncludeChain = 'All'
+        }
         $signature = Set-AuthenticodeSignature @signatureParameters
         $stopwatch.Stop()
-        if (
+        if ($useUntrustedTestRoot) {
+            & $testSignatureValidator `
+                -Signature $signature `
+                -ExpectedSignerThumbprint $expectedSignerThumbprint `
+                -RootCertificatePath $resolvedTestRootCertificatePath `
+                -FileName $relativePath
+        } elseif (
             $signature.Status -ne 'Valid' -or
             -not $signature.SignerCertificate -or
             $signature.SignerCertificate.Thumbprint -ne
@@ -139,7 +180,11 @@ try {
 [pscustomobject]@{
     Package = $package
     SignedFiles = $signableFiles.Count
-    SignatureStatus = 'Valid'
+    SignatureStatus = if ($useUntrustedTestRoot) {
+        'CryptographicallyValidWithUntrustedTestRoot'
+    } else {
+        'Valid'
+    }
     SignerThumbprint = $expectedSignerThumbprint
     Timestamped = -not [string]::IsNullOrWhiteSpace($TimestampServer)
 } | Format-List

@@ -16,6 +16,9 @@ All notable changes to this project are documented in this file. Versions use
 
 - Pin signed releases to an expected leaf-certificate thumbprint and reject
   unexpected files in the package allowlist.
+- Remove Trusted Root/TrustedPublisher writes from the ephemeral signing test;
+  validate the exact WinVerifyTrust untrusted-root result against a temporary
+  current-user CA chain, and prove tampered signed files are rejected.
 
 ## 4.0.0 - 2026-08-03
 

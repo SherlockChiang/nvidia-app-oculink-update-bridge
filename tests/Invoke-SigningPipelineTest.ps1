@@ -12,16 +12,17 @@ $archiveHashPath = $archivePath + '.sha256'
 $pfxPath = Join-Path `
     ([IO.Path]::GetTempPath()) `
     ('nvidia-oculink-signing-test-' + [Guid]::NewGuid() + '.pfx')
+$issuerCerPath = Join-Path `
+    ([IO.Path]::GetTempPath()) `
+    ('nvidia-oculink-signing-test-root-' + [Guid]::NewGuid() + '.cer')
 $passwordText = [Guid]::NewGuid().ToString('N')
 $securePassword =
     ConvertTo-SecureString $passwordText -AsPlainText -Force
 $certificate = $null
-$publicCertificate = $null
+$issuerCertificate = $null
+$issuerPublicCertificate = $null
 $rsa = $null
-$trustedStoreNames = @(
-    [Security.Cryptography.X509Certificates.StoreName]::Root,
-    [Security.Cryptography.X509Certificates.StoreName]::TrustedPublisher
-)
+$issuerRsa = $null
 
 function Remove-TestArtifact {
     param([Parameter(Mandatory)][string]$LiteralPath)
@@ -46,6 +47,42 @@ try {
     & (Join-Path $repositoryRoot 'build\Publish-Package.ps1') `
         -Version $testVersion `
         -SkipBuild
+
+    Write-Output 'Creating an isolated test CA and code-signing certificate ...'
+    $issuerRsa = [Security.Cryptography.RSA]::Create(2048)
+    $issuerRequest =
+        [Security.Cryptography.X509Certificates.CertificateRequest]::new(
+            ('CN=NVIDIA App OCuLink signing test CA ' + [Guid]::NewGuid()),
+            $issuerRsa,
+            [Security.Cryptography.HashAlgorithmName]::SHA256,
+            [Security.Cryptography.RSASignaturePadding]::Pkcs1
+        )
+    $issuerRequest.CertificateExtensions.Add(
+        [Security.Cryptography.X509Certificates.X509BasicConstraintsExtension]::new(
+            $true,
+            $false,
+            0,
+            $true
+        )
+    )
+    $issuerRequest.CertificateExtensions.Add(
+        [Security.Cryptography.X509Certificates.X509KeyUsageExtension]::new(
+            (
+                [Security.Cryptography.X509Certificates.X509KeyUsageFlags]::KeyCertSign -bor
+                [Security.Cryptography.X509Certificates.X509KeyUsageFlags]::CrlSign
+            ),
+            $true
+        )
+    )
+    $issuerRequest.CertificateExtensions.Add(
+        [Security.Cryptography.X509Certificates.X509SubjectKeyIdentifierExtension]::new(
+            $issuerRequest.PublicKey,
+            $false
+        )
+    )
+    $notBefore = [DateTimeOffset]::UtcNow.AddMinutes(-5)
+    $notAfter = [DateTimeOffset]::UtcNow.AddDays(2)
+    $issuerCertificate = $issuerRequest.CreateSelfSigned($notBefore, $notAfter)
 
     $rsa = [Security.Cryptography.RSA]::Create(2048)
     $subject = 'CN=NVIDIA App OCuLink signing pipeline test ' + [Guid]::NewGuid()
@@ -81,39 +118,67 @@ try {
             $true
         )
     )
-    $certificate = $request.CreateSelfSigned(
-        [DateTimeOffset]::UtcNow.AddMinutes(-5),
-        [DateTimeOffset]::UtcNow.AddDays(2)
+    $request.CertificateExtensions.Add(
+        [Security.Cryptography.X509Certificates.X509SubjectKeyIdentifierExtension]::new(
+            $request.PublicKey,
+            $false
+        )
     )
+    $issuedCertificate = $request.Create(
+        $issuerCertificate,
+        $notBefore,
+        $notAfter.AddMinutes(-1),
+        [Guid]::NewGuid().ToByteArray()
+    )
+    try {
+        $certificate =
+            [Security.Cryptography.X509Certificates.RSACertificateExtensions]::CopyWithPrivateKey(
+                $issuedCertificate,
+                $rsa
+            )
+    } finally {
+        $issuedCertificate.Dispose()
+    }
+    $issuerPublicCertificate =
+        [Security.Cryptography.X509Certificates.X509Certificate2]::new(
+            $issuerCertificate.Export(
+                [Security.Cryptography.X509Certificates.X509ContentType]::Cert
+            )
+        )
+    $pfxCertificates =
+        [Security.Cryptography.X509Certificates.X509Certificate2Collection]::new()
+    $pfxCertificates.Add($certificate) | Out-Null
+    $pfxCertificates.Add($issuerPublicCertificate) | Out-Null
     [IO.File]::WriteAllBytes(
         $pfxPath,
-        $certificate.Export(
+        $pfxCertificates.Export(
             [Security.Cryptography.X509Certificates.X509ContentType]::Pfx,
             $passwordText
         )
     )
-    $publicCertificate =
-        [Security.Cryptography.X509Certificates.X509Certificate2]::new(
-            $certificate.Export(
-                [Security.Cryptography.X509Certificates.X509ContentType]::Cert
-            )
+    [IO.File]::WriteAllBytes(
+        $issuerCerPath,
+        $issuerPublicCertificate.Export(
+            [Security.Cryptography.X509Certificates.X509ContentType]::Cert
         )
-
-    foreach ($storeName in $trustedStoreNames) {
-        $store =
-            [Security.Cryptography.X509Certificates.X509Store]::new(
-                $storeName,
-                [Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser
-            )
-        try {
-            $store.Open(
-                [Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite
-            )
-            $store.Add($publicCertificate)
-        } finally {
-            $store.Dispose()
-        }
+    )
+    $issuerStore =
+        [Security.Cryptography.X509Certificates.X509Store]::new(
+            [Security.Cryptography.X509Certificates.StoreName]::CertificateAuthority,
+            [Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser
+        )
+    try {
+        $issuerStore.Open(
+            [Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite
+        )
+        $issuerStore.Add($issuerPublicCertificate)
+    } finally {
+        $issuerStore.Dispose()
     }
+    Write-Output (
+        'Temporary issuer added only to CurrentUser\CA for chain building; ' +
+        'no root trust was granted.'
+    )
 
     $thumbprintMismatchRejected = $false
     try {
@@ -122,6 +187,7 @@ try {
             -SigningCertificatePath $pfxPath `
             -SigningCertificatePassword $securePassword `
             -ExpectedSignerThumbprint ('0' * 40) `
+            -UntrustedTestRootCertificatePath $issuerCerPath `
             -TimestampServer ''
     } catch {
         if ($_.Exception.Message -notmatch 'does not match') {
@@ -138,59 +204,149 @@ try {
         -SigningCertificatePath $pfxPath `
         -SigningCertificatePassword $securePassword `
         -ExpectedSignerThumbprint $certificate.Thumbprint `
+        -UntrustedTestRootCertificatePath $issuerCerPath `
         -TimestampServer ''
+
+    $strictTrustRejected = $false
+    try {
+        & (Join-Path $repositoryRoot 'build\Finalize-Package.ps1') `
+            -PackagePath $packageRoot `
+            -ArchivePath $archivePath `
+            -RequireSignature
+    } catch {
+        if ($_.Exception.Message -notmatch 'signatures are invalid') {
+            throw
+        }
+        $strictTrustRejected = $true
+    }
+    if (-not $strictTrustRejected) {
+        throw 'The strict release gate accepted an untrusted test root.'
+    }
+    Write-Output 'Strict release trust gate rejected the untrusted test root.'
+
+    $tamperTarget = Join-Path $packageRoot 'Setup.ps1'
+    $originalBytes = [IO.File]::ReadAllBytes($tamperTarget)
+    $tamperedBytes = [byte[]]$originalBytes.Clone()
+    $tamperedBytes[0] = $tamperedBytes[0] -bxor 1
+    $tamperRejected = $false
+    try {
+        [IO.File]::WriteAllBytes($tamperTarget, $tamperedBytes)
+        try {
+            & (Join-Path $repositoryRoot 'build\Finalize-Package.ps1') `
+                -PackagePath $packageRoot `
+                -ArchivePath $archivePath `
+                -RequireSignature `
+                -UntrustedTestRootCertificatePath $issuerCerPath `
+                -ExpectedTestSignerThumbprint $certificate.Thumbprint
+        } catch {
+            if ($_.Exception.Message -notmatch 'HashMismatch') {
+                throw
+            }
+            $tamperRejected = $true
+        }
+    } finally {
+        [IO.File]::WriteAllBytes($tamperTarget, $originalBytes)
+    }
+    if (-not $tamperRejected) {
+        throw 'The signature gate accepted a tampered signed file.'
+    }
+    Write-Output 'Authenticode gate rejected a tampered signed file.'
+
     & (Join-Path $repositoryRoot 'build\Finalize-Package.ps1') `
         -PackagePath $packageRoot `
         -ArchivePath $archivePath `
-        -RequireSignature
+        -RequireSignature `
+        -UntrustedTestRootCertificatePath $issuerCerPath `
+        -ExpectedTestSignerThumbprint $certificate.Thumbprint
     & (Join-Path $PSScriptRoot 'Test-Package.ps1') `
         -PackagePath $packageRoot `
         -ArchivePath $archivePath `
-        -RequireSignature
+        -RequireSignature `
+        -UntrustedTestRootCertificatePath $issuerCerPath `
+        -ExpectedTestSignerThumbprint $certificate.Thumbprint
 
     Write-Output 'Signing pipeline self-test passed.'
 } finally {
-    if ($publicCertificate) {
-        foreach ($storeName in $trustedStoreNames) {
-            $store =
-                [Security.Cryptography.X509Certificates.X509Store]::new(
-                    $storeName,
-                    [Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser
-                )
-            try {
-                $store.Open(
-                    [Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite
-                )
-                $matches = $store.Certificates.Find(
-                    [Security.Cryptography.X509Certificates.X509FindType]::FindByThumbprint,
-                    $publicCertificate.Thumbprint,
-                    $false
-                )
-                foreach ($match in $matches) {
-                    $store.Remove($match)
-                }
-            } finally {
-                $store.Dispose()
+    $cleanupFailures = [Collections.Generic.List[string]]::new()
+    if ($issuerPublicCertificate) {
+        $issuerStore =
+            [Security.Cryptography.X509Certificates.X509Store]::new(
+                [Security.Cryptography.X509Certificates.StoreName]::CertificateAuthority,
+                [Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser
+            )
+        try {
+            $issuerStore.Open(
+                [Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite
+            )
+            $matches = $issuerStore.Certificates.Find(
+                [Security.Cryptography.X509Certificates.X509FindType]::FindByThumbprint,
+                $issuerPublicCertificate.Thumbprint,
+                $false
+            )
+            foreach ($match in $matches) {
+                $issuerStore.Remove($match)
             }
+            $remaining = $issuerStore.Certificates.Find(
+                [Security.Cryptography.X509Certificates.X509FindType]::FindByThumbprint,
+                $issuerPublicCertificate.Thumbprint,
+                $false
+            )
+            if ($remaining.Count -ne 0) {
+                throw 'The temporary issuer is still present after removal.'
+            }
+            Write-Output 'Temporary CurrentUser\CA issuer removed.'
+        } catch {
+            $cleanupFailures.Add(
+                (
+                    "issuer $($issuerPublicCertificate.Thumbprint) removal: " +
+                    $_.Exception.Message
+                )
+            )
+        } finally {
+            $issuerStore.Dispose()
         }
     }
-    Remove-TestArtifact -LiteralPath $packageRoot
-    Remove-TestArtifact -LiteralPath $archivePath
-    Remove-TestArtifact -LiteralPath $archiveHashPath
-    if (Test-Path -LiteralPath $pfxPath) {
-        $resolvedPfx = [IO.Path]::GetFullPath($pfxPath)
-        $temporaryPrefix = [IO.Path]::GetFullPath(
-            [IO.Path]::GetTempPath()
-        ).TrimEnd('\') + '\'
-        if (-not $resolvedPfx.StartsWith(
-            $temporaryPrefix,
-            [StringComparison]::OrdinalIgnoreCase
-        )) {
-            throw "Refusing to remove an unexpected test PFX: $resolvedPfx"
+    foreach ($artifactPath in @(
+        $packageRoot,
+        $archivePath,
+        $archiveHashPath
+    )) {
+        try {
+            Remove-TestArtifact -LiteralPath $artifactPath
+        } catch {
+            $cleanupFailures.Add(
+                "artifact removal ($artifactPath): $($_.Exception.Message)"
+            )
         }
-        Remove-Item -LiteralPath $resolvedPfx -Force
     }
-    if ($publicCertificate) { $publicCertificate.Dispose() }
+    foreach ($temporaryPath in @($pfxPath, $issuerCerPath)) {
+        try {
+            if (-not (Test-Path -LiteralPath $temporaryPath)) {
+                continue
+            }
+            $resolvedTemporaryPath = [IO.Path]::GetFullPath($temporaryPath)
+            $temporaryPrefix = [IO.Path]::GetFullPath(
+                [IO.Path]::GetTempPath()
+            ).TrimEnd('\') + '\'
+            if (-not $resolvedTemporaryPath.StartsWith(
+                $temporaryPrefix,
+                [StringComparison]::OrdinalIgnoreCase
+            )) {
+                throw "Refusing to remove an unexpected temporary file: $resolvedTemporaryPath"
+            }
+            Remove-Item -LiteralPath $resolvedTemporaryPath -Force
+        } catch {
+            $cleanupFailures.Add(
+                "temporary file removal ($temporaryPath): $($_.Exception.Message)"
+            )
+        }
+    }
     if ($certificate) { $certificate.Dispose() }
+    if ($issuerPublicCertificate) { $issuerPublicCertificate.Dispose() }
+    if ($issuerCertificate) { $issuerCertificate.Dispose() }
     if ($rsa) { $rsa.Dispose() }
+    if ($issuerRsa) { $issuerRsa.Dispose() }
+    if ($cleanupFailures.Count -gt 0) {
+        throw "Signing test cleanup failed: $($cleanupFailures -join '; ')"
+    }
 }

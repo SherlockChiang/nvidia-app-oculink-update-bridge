@@ -7,6 +7,13 @@ CI 在普通 push 和 pull request 上生成未签名 ZIP，仅供自动化验�
 使用临时自签证书的签名管线全链路自测仅在每周定时任务和手动调度时
 运行；这避免 Windows WinTrust 重复校验拖慢每次提交，不改变正式发布的
 强制签名门禁。
+自测生成随机、短期且根私钥不落盘的测试 CA/叶证书链；根公钥只临时放入
+`CurrentUser\CA` 帮助构建链，不写受信任 Root/TrustedPublisher，也不授予系统
+信任。测试门禁要求 WinVerifyTrust 的底层错误精确为 `CERT_E_UNTRUSTEDROOT`，并用
+.NET `CustomRootTrust` 独立验证代码签名 EKU、叶证书指纹及两层证书链；任何其他
+`UnknownError` 均失败。签名后篡改负测还证明哈希不匹配会被拒绝；`finally` 按
+指纹移除临时 CA 证书并删除 CER/PFX。正式 Release 不走测试门禁，仍强制
+`Valid`、预配置叶证书指纹和时间戳。
 
 正式 GitHub Release 只由手动 `Signed release` 工作流创建。该工作流会重新构建、
 运行本地自测和 NVIDIA 在线元数据集成测试、签名服务 EXE 及所有 PowerShell 安装
