@@ -22,8 +22,9 @@ App are trademarks of their respective owners.
 - The development machine was transactionally migrated from v3, fully
   uninstalled back to NVIDIA's official configuration, and then reinstalled
   through the native v4 first-install path. All three paths passed live checks.
-- `Setup.cmd` automatically chooses first install, v3 migration, or v4
-  repair/upgrade. `Status.cmd` is a non-administrator health check.
+- `NvidiaAppOculinkUpdateBridge.exe` provides one signed Windows menu for
+  setup/upgrade, status, repair, and uninstall. Status remains
+  non-administrator; maintenance requests one UAC approval only when needed.
 - The installed service runs as `NT AUTHORITY\LocalService` (`S-1-5-19`),
   starts automatically, and recovered under SCM with a new PID after a forced
   process termination.
@@ -37,38 +38,47 @@ read the [signed GitHub release guide](docs/github-release.zh-CN.md).
 
 ## Win11 package
 
-Build output is a self-contained x64 ZIP. After extraction:
+Build output is an x64 ZIP. Both the service and native Windows launcher are
+self-contained; users do not install a separate runtime. After extraction:
 
-1. Double-click `Setup.cmd` and approve one UAC prompt.
-2. Use NVIDIA App normally. Its background/manual metadata checks now pass
+1. Double-click `NvidiaAppOculinkUpdateBridge.exe` and choose **Set up or
+   upgrade**.
+2. Approve the launcher UAC prompt. A signed release shows the project's code
+   signing publisher instead of an unsigned batch/PowerShell host.
+3. Use NVIDIA App normally. Its background/manual metadata checks now pass
    through the LocalService bridge.
-3. Run `Status.cmd` at any time without elevation.
-4. After an NVIDIA App upgrade, run `Setup.cmd` again; it selects the
-   schema-aware repair path.
-5. Double-click `Uninstall-NvidiaAppOculinkShim.cmd` to restore NVIDIA's
+4. Open the launcher at any time for a status check without elevation.
+5. After an NVIDIA App upgrade, choose **Set up or upgrade** again; it selects
+   the schema-aware repair path. Choose **Uninstall** to restore NVIDIA's
    original endpoint and refresh timestamp.
 
 CI artifacts and locally built executables are intentionally **not
 Authenticode signed**. They are fit for controlled testing, not broad public
-distribution. The `Signed release` workflow refuses to create a GitHub Release
-unless the service executable and every packaged PowerShell installer/module
-have valid Authenticode signatures. It also creates GitHub/Sigstore provenance
-attestations for the ZIP and its checksum file.
+distribution; the launcher permits self-tests and status inspection but refuses
+privileged maintenance when unsigned. The `Signed release` workflow refuses to create a GitHub Release
+unless the launcher, service executable, signed maintenance manifest, and every
+packaged PowerShell installer/module have valid matching Authenticode
+signatures. It also creates GitHub/Sigstore provenance attestations for the ZIP
+and its checksum file.
 
 For GitHub Releases, verify both the published SHA-256 manifest and the
 Authenticode signature before approving UAC. Do not install binaries attached
 to issues or supplied by third parties.
 
-Windows cannot Authenticode-sign `.cmd` launchers. Official prereleases protect
-the ZIP with GitHub/Sigstore provenance and sign the service plus every
-PowerShell file containing privileged logic. A signed native bootstrapper/MSI
-remains a release gate before calling the installer broadly consumer-ready.
+The launcher elevates the same signed executable, copies an exact maintenance
+allowlist to an Administrator/SYSTEM-only staging directory, and revalidates
+WinVerifyTrust, signer identity, version, and signed-manifest hashes before it
+starts the fixed system Windows PowerShell. Native static/dynamic DLL loading is
+System32-scoped, and a file-identity-checked read lease prevents replacement of
+the verified launcher before UAC creates the elevated child. Public packages do
+not include the legacy `.cmd` entry points.
 
 ## Developer commands
 
 ```powershell
 dotnet build .\NvidiaAppOculinkShim.slnx --configuration Release
 dotnet run --project .\src\NvidiaAppOculinkShim --configuration Release --no-build -- --self-test
+.\tests\Invoke-LauncherSelfTest.ps1
 .\tests\Invoke-IntegrationTest.ps1 -Configuration Release
 .\build\Publish-Package.ps1
 ```

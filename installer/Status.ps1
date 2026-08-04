@@ -2,11 +2,19 @@
 param()
 
 $ErrorActionPreference = 'Stop'
-$installRoot = Join-Path $env:ProgramData 'NVIDIAAppOCuLinkDriverShim'
+$programData = [Environment]::GetFolderPath(
+    [Environment+SpecialFolder]::CommonApplicationData
+)
+$installRoot = Join-Path $programData 'NVIDIAAppOCuLinkDriverShim'
 $statePath = Join-Path $installRoot 'state.json'
 $configPath = Join-Path $installRoot 'config.json'
-$profilePath = 'C:\ProgramData\NVIDIA Corporation\NVIDIA App\UpdateFramework\profile-catalog\component_profiles.json'
-$localizedConfigPath = 'C:\ProgramData\NVIDIA Corporation\NVIDIA App\NvConfig\LocalizedConfig.json'
+$profilePath = Join-Path $programData (
+    'NVIDIA Corporation\NVIDIA App\UpdateFramework\' +
+    'profile-catalog\component_profiles.json'
+)
+$localizedConfigPath = Join-Path $programData (
+    'NVIDIA Corporation\NVIDIA App\NvConfig\LocalizedConfig.json'
+)
 $serviceName = 'NvidiaAppOculinkShim'
 
 try {
@@ -53,7 +61,9 @@ try {
     }
 } catch {
     Write-Error $_
-    Write-Output 'Run Setup.cmd to install or repair the bridge.'
+    Write-Output (
+        'Open NvidiaAppOculinkUpdateBridge.exe and choose ' +
+        '"Set up or upgrade" to install or repair the bridge.'
+    )
     exit 1
 }
-

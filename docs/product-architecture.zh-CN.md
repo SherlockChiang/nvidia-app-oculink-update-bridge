@@ -12,8 +12,9 @@
 | 组件 | 运行身份 | 职责 |
 |---|---|---|
 | `NvidiaAppOculinkShim.exe` | `LocalService` | 只监听 loopback、规范化请求、转发官方元数据、写有限日志 |
-| 安装/维护程序 | 用户批准后的管理员 | 事务式备份/修改 NVIDIA 配置、注册服务、升级和卸载 |
-| 可选托盘状态程序 | 当前用户 | 只读健康检查、显示状态；需要修复时再触发 UAC |
+| `NvidiaAppOculinkUpdateBridge.exe` | 当前用户；维护时经 UAC 成为管理员 | 显示状态/维护菜单、验证包、建立受保护暂存、触发事务脚本 |
+| PowerShell 维护脚本 | 启动器批准后的管理员 | 事务式备份/修改 NVIDIA 配置、注册服务、升级和卸载 |
+| 可选托盘状态程序 | 当前用户 | 后续可增加常驻提示；不进入服务权限边界 |
 
 常驻服务不能写自己的程序/config/token，也不能写 NVIDIA 配置。只有 runtime
 目录允许 `LocalService` 写日志和 PID。这样即使代理进程被利用，也无法持久化
@@ -33,6 +34,30 @@ v4 已直接接入 Windows Service Control Manager：
 启动 v4；任一步失败都会删除新服务并恢复旧任务。首次安装、v3 迁移、v4 修复和
 卸载目前已分别实机验证。
 
+## 签名启动器与一次 UAC
+
+公开 ZIP 的统一入口是 x64 NativeAOT `NvidiaAppOculinkUpdateBridge.exe`，不启动
+CLR，也不读取相邻 `.exe.config`。PE 的静态依赖加载标志和程序集级 P/Invoke 策略都
+限定为 System32，并在进入托管入口后继续收紧 DLL 搜索。PE manifest 固定为
+`asInvoker`：检查状态不会提权，安装、修复
+和卸载才以 `runas` 重启同一个 EXE。因此正式签名包的 UAC 提示显示项目代码签名
+发布者，而不是不可签名的批处理或通用 PowerShell 主机。
+
+启动器从进入 `Main` 起持续持有自身文件的只读租约并记录卷/文件 ID；验签前、UAC
+启动前和管理员子进程中都会再次核对同一路径身份。租约禁止写入和删除共享，因此
+攻击者不能在验签成功后重命名目录或替换将要提权的 EXE。
+
+管理员子进程不会直接执行用户可写解压目录中的文件。它只把编译期固定白名单复制到
+ProgramData 下随机暂存目录，目录 ACL 只允许 Administrator/SYSTEM 写入；复制后再次
+检查 reparse point、WinVerifyTrust、同一叶证书、版本、长度和签名维护清单中的
+SHA-256，同时对签名链（根证书除外）执行吊销检查。通过后才以绝对 System32 路径
+启动 Windows PowerShell，清空继承环境并只重建系统 PATH/PSModulePath 和必需的
+Known Folder。无论成功、失败还是 UAC 取消，都返回稳定退出码并清理
+暂存目录。
+
+CI/本地未签名构建只允许在明确警告后执行自测和只读状态检查，并拒绝提权维护；正式
+Release 门禁不接受未签名模式。
+
 ## 用户可见状态
 
 建议只显示四种状态：
@@ -45,9 +70,9 @@ v4 已直接接入 Windows Service Control Manager：
 日志默认只记录路由、耗时、修改前后的三个分类字段和 HTTP 状态，不记录 token、
 cookie、authorization 或完整请求 URL。
 
-当前 ZIP 提供普通用户可运行的 `Status.cmd`，显示 Normal/Needs repair、服务状态、
-两条重定向和上次验证版本。正式图形化托盘 UI 仍属于后续体验增强，不影响后台服务
-和 NVIDIA App 的自动检查。
+当前 ZIP 的图形启动器提供安装/升级、状态、修复和卸载入口；状态脚本仍返回 0/1/2，
+启动器将结果和受限诊断显示给用户。正式图形化托盘 UI 仍属于后续体验增强，不影响
+后台服务和 NVIDIA App 的自动检查。
 
 ## 发布门槛
 
@@ -58,8 +83,8 @@ cookie、authorization 或完整请求 URL。
 3. 部分完成：独立测试服务的 LocalService 身份、ACL、SCM 启停和强制崩溃自动
    恢复已验证；系统重启、睡眠/网络矩阵待测；
 4. 已完成：首次安装、v3 迁移、幂等修复、卸载恢复和失败回滚路径；
-5. 部分完成：x64 自包含单文件/ZIP、签名隔离/验签/时间戳门禁和 Sigstore 来源证明
-   流程已验证；仍缺可信正式证书与签名原生安装入口；
+5. 部分完成：x64 自包含服务/ZIP、签名图形入口、管理员暂存、验签/时间戳门禁和
+   Sigstore 来源证明流程已实现；仍缺可信正式证书与干净机 SmartScreen/UAC 验收；
 6. 待完成：多机型、Win11 稳定版/预览版、NVIDIA App 版本矩阵；
 7. 已完成：不硬编码最新驱动版本，并从 PnP 动态生成 NVIDIA `dIDa`。
 

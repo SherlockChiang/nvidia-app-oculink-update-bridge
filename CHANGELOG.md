@@ -5,12 +5,23 @@ All notable changes to this project are documented in this file. Versions use
 
 ## Unreleased
 
+### Added
+
+- Add a self-contained x64 NativeAOT Win11 GUI launcher for setup/upgrade,
+  status, repair, and uninstall; maintenance requests UAC through the same
+  signable executable without a CLR pre-main loading surface.
+- Add a signed maintenance manifest that binds the exact privileged file set
+  to its package version, lengths, and post-signing SHA-256 values.
+
 ### Changed
 
 - Run the expensive ephemeral Authenticode pipeline self-test on scheduled and
   manually dispatched CI runs while keeping signed releases fully gated.
 - Give signed releases enough time for Windows trust validation, while bounding
   the certificate-bearing step separately and cleaning its temporary PFX.
+- Remove unsigned `.cmd` entry points from public ZIPs; they remain in source
+  only for legacy development workflows.
+- Return NVIDIA App to the current user session after successful GUI maintenance.
 
 ### Security
 
@@ -19,6 +30,16 @@ All notable changes to this project are documented in this file. Versions use
 - Remove Trusted Root/TrustedPublisher writes from the ephemeral signing test;
   validate the exact WinVerifyTrust untrusted-root result against a temporary
   current-user CA chain, and prove tampered signed files are rejected.
+- Before privileged maintenance, copy an exact allowlist to an
+  Administrator/SYSTEM-only staging directory and revalidate WinVerifyTrust,
+  signer identity, version, and signed-manifest hashes.
+- Resolve ProgramData through the Windows known-folder API, atomically create a
+  randomized protected staging directory, sanitize the PowerShell environment,
+  clean up only ACL-validated stale staging directories, and require whole-chain
+  Authenticode revocation checks.
+- Force static and dynamic DLL resolution to System32 before managed entry, and
+  hold a file-identity-checked read lease across validation and UAC startup so
+  the launcher path cannot be replaced after trust is established.
 
 ## 4.0.0 - 2026-08-03
 

@@ -6,7 +6,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $appExe = 'C:\Program Files\NVIDIA Corporation\NVIDIA App\CEF\NVIDIA App.exe'
-$installRoot = Join-Path $env:ProgramData 'NVIDIAAppOCuLinkDriverShim'
+$programData = [Environment]::GetFolderPath(
+    [Environment+SpecialFolder]::CommonApplicationData
+)
+$installRoot = Join-Path $programData 'NVIDIAAppOCuLinkDriverShim'
 $runtimeRoot = Join-Path $installRoot 'runtime'
 $statePath = Join-Path $installRoot 'state.json'
 $configPath = Join-Path $installRoot 'config.json'

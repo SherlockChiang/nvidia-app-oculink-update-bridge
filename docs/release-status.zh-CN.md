@@ -18,13 +18,20 @@
   scanning 和 push protection 均已开启；
 - Actions 只允许固定 SHA 的 GitHub 官方 Action，`release-signing` Environment
   只允许 `main` 且需账号审批。
+- 公开 ZIP 已改用自包含 x64 NativeAOT 图形启动器统一处理安装/升级、状态、修复和卸载；
+  状态不提权，维护动作由同一 EXE 请求一次 UAC；
+- 启动器会把 9 个固定维护输入复制到 Administrator/SYSTEM-only 随机暂存目录，
+  重新校验签名者、版本、长度和签名维护清单 SHA-256；
+- 未签名完整 ZIP（22 个文件）和 11 文件临时 Authenticode 全链路均已通过；脚本、
+  启动器和维护清单的逐字节篡改均被拒绝，临时证书/PFX/包无残留。
 
 ## 公开发布前仍需
 
 - 购买/配置可信 Authenticode 代码签名证书；
-- 在广泛稳定版发布前提供签名的原生 bootstrapper/MSI；首批 prerelease 的 `.cmd`
-  入口由 ZIP 来源证明覆盖，提权 EXE/PowerShell 均签名；
-- 在干净 Win11 稳定版机器上测试全新安装；
+- 在干净 Win11 稳定版机器上验证正式证书的 Publisher、SmartScreen、全新安装和图形
+  启动器一次 UAC；
+- 后续如需“已安装的应用”入口与无需保留 ZIP 的维护体验，再提供 MSI/MSIX 或注册
+  受保护的已安装维护入口；
 - 测试 Win11 Insider、休眠恢复、断网恢复和系统重启；
 - 覆盖多张 NVIDIA 桌面卡、双 NVIDIA GPU 和不同 OCuLink 控制器；
 - 用下一次 NVIDIA App 自升级验证 schema-aware repair；

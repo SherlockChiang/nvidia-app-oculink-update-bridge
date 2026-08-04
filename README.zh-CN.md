@@ -18,13 +18,15 @@
 
 从 GitHub Releases 下载 Win11 x64 ZIP，解压后：
 
-1. 双击 `Setup.cmd` 并批准一次 UAC；
-2. 正常使用 NVIDIA App；
-3. 双击 `Status.cmd` 可在普通用户权限下检查状态；
-4. NVIDIA App 大版本升级后可再次运行 `Setup.cmd` 修复；
-5. `Uninstall-NvidiaAppOculinkShim.cmd` 会恢复安装前的 NVIDIA 配置。
+1. 双击 `NvidiaAppOculinkUpdateBridge.exe`；
+2. 选择“安装或升级”，并批准一次由同一启动器发起的 UAC；
+3. 正常使用 NVIDIA App；
+4. 随时从启动器执行普通用户权限的“检查状态”；
+5. NVIDIA App 大版本升级后再次选择“安装或升级”即可自动修复；“卸载”会恢复安装前
+   的 NVIDIA 配置。
 
-`Setup.cmd` 会自动判断首次安装、从 v3 迁移或修复/升级 v4。
+启动器会自动判断首次安装、从 v3 迁移或修复/升级 v4。后台服务和 x64 NativeAOT
+图形启动器均为自包含程序，不要求用户另装运行库。
 
 ## 安全设计
 
@@ -46,11 +48,15 @@
 NVIDIA App 是其各自权利人的商标。
 
 安装前请确认 Release 资产的 SHA-256 和代码签名。CI 构件与本地构建默认不签名，
-仅适合受控测试；`Signed release` 工作流要求服务 EXE 和所有 PowerShell 安装脚本/
-模块签名均为 `Valid`，并为 ZIP 与哈希文件生成 GitHub/Sigstore 构建来源证明。
+仅适合自测和只读状态检查；未签名启动器拒绝执行提权维护。`Signed release` 工作流
+要求启动器、服务 EXE、维护清单和所有
+PowerShell 安装脚本/模块的同一签名均为 `Valid`，并为 ZIP 与哈希文件生成
+GitHub/Sigstore 构建来源证明。
 
-Windows 不支持为 `.cmd` 入口添加 Authenticode。首批 prerelease 依靠 ZIP 来源证明，
-并对真正执行提权逻辑的 EXE/PowerShell 全部签名；在提供签名的原生 bootstrapper/MSI
-之前，不把它描述成面向大规模普通用户的最终安装器。
+启动器以自身签名身份请求 UAC，把固定维护白名单复制到仅 Administrator/SYSTEM 可写
+的随机暂存目录，并在运行固定系统 PowerShell 前再次校验 WinVerifyTrust、同一签名者、
+版本和受签名清单中的 SHA-256。静态/动态 DLL 加载均限定到 System32；验签后到 UAC
+创建管理员子进程期间，启动器还会持有并核对自身文件租约，阻止路径替换。公开 ZIP
+不再包含旧 `.cmd` 入口。
 
 本项目采用 [MIT License](LICENSE)。

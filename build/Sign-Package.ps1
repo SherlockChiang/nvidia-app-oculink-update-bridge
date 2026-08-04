@@ -88,7 +88,8 @@ if (-not [string]::IsNullOrWhiteSpace($TimestampServer)) {
     }
 }
 
-$signableRelativePaths = @(
+$signedContentRelativePaths = @(
+    'NvidiaAppOculinkUpdateBridge.exe',
     'payload\NvidiaAppOculinkShim.exe',
     'Install-NvidiaAppOculinkShim.ps1',
     'Migrate-V3ToV4.ps1',
@@ -98,6 +99,11 @@ $signableRelativePaths = @(
     'Status.ps1',
     'Test-NvidiaAppOculinkShim.ps1',
     'Uninstall-NvidiaAppOculinkShim.ps1'
+)
+$maintenanceManifestRelativePath = 'MaintenanceManifest.ps1'
+$signableRelativePaths = @(
+    $signedContentRelativePaths
+    $maintenanceManifestRelativePath
 )
 $signableFiles = @(
     foreach ($relative in $signableRelativePaths) {
@@ -132,12 +138,15 @@ try {
             "Expected $normalizedExpectedThumbprint; got $expectedSignerThumbprint."
         )
     }
-    foreach ($file in $signableFiles) {
-        $relativePath = $file.FullName.Substring($package.Length + 1)
+
+    $signFile = {
+        param([IO.FileInfo]$File)
+
+        $relativePath = $File.FullName.Substring($package.Length + 1)
         Write-Output "Signing $relativePath ..."
         $stopwatch = [Diagnostics.Stopwatch]::StartNew()
         $signatureParameters = @{
-            LiteralPath = $file.FullName
+            LiteralPath = $File.FullName
             Certificate = $certificate
             HashAlgorithm = 'SHA256'
         }
@@ -161,18 +170,42 @@ try {
             $signature.SignerCertificate.Thumbprint -ne
                 $expectedSignerThumbprint
         ) {
-            throw "Signing failed for $($file.Name): $($signature.Status)"
+            throw "Signing failed for $($File.Name): $($signature.Status)"
         }
         if (
             -not [string]::IsNullOrWhiteSpace($TimestampServer) -and
             -not $signature.TimeStamperCertificate
         ) {
-            throw "The signature was not timestamped: $($file.Name)"
+            throw "The signature was not timestamped: $($File.Name)"
         }
         Write-Output (
             "Signed $relativePath in {0:N1}s." -f $stopwatch.Elapsed.TotalSeconds
         )
     }
+
+    foreach ($file in $signableFiles | Where-Object {
+        $_.Name -ne $maintenanceManifestRelativePath
+    }) {
+        & $signFile $file
+    }
+
+    $buildInfoPath = Join-Path $package 'BUILD-INFO.txt'
+    $versionLine = @(
+        Get-Content -LiteralPath $buildInfoPath |
+            Where-Object { $_ -match '^Version: (.+)$' }
+    )
+    if ($versionLine.Count -ne 1) {
+        throw 'BUILD-INFO.txt must contain exactly one Version line.'
+    }
+    $packageVersion = $versionLine[0].Substring('Version: '.Length)
+    & (Join-Path $repositoryRoot 'build\New-MaintenanceManifest.ps1') `
+        -PackagePath $package `
+        -Version $packageVersion |
+        Out-Null
+    $manifestFile = Get-Item -LiteralPath (
+        Join-Path $package $maintenanceManifestRelativePath
+    )
+    & $signFile $manifestFile
 } finally {
     $certificate.Dispose()
 }

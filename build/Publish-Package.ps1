@@ -8,8 +8,11 @@ $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $project =
     Join-Path $repositoryRoot 'src\NvidiaAppOculinkShim\NvidiaAppOculinkShim.csproj'
+$launcherProject =
+    Join-Path $repositoryRoot 'src\NvidiaAppOculinkLauncher\NvidiaAppOculinkLauncher.csproj'
 $artifactsRoot = Join-Path $repositoryRoot 'artifacts'
 $publishRoot = Join-Path $artifactsRoot 'publish\win-x64'
+$launcherPublishRoot = Join-Path $artifactsRoot 'publish\launcher-win-x64'
 $packageName = "NvidiaAppOculinkUpdateBridge-$Version-win-x64"
 $packageRoot = Join-Path $artifactsRoot (Join-Path 'package' $packageName)
 $payloadRoot = Join-Path $packageRoot 'payload'
@@ -33,6 +36,25 @@ if (-not $SkipBuild) {
         }
         Remove-Item -LiteralPath $resolvedPublishRoot -Recurse -Force
     }
+    if (Test-Path -LiteralPath $launcherPublishRoot) {
+        $resolvedLauncherPublishRoot =
+            (Resolve-Path -LiteralPath $launcherPublishRoot).Path
+        $expectedPublishParent =
+            (Join-Path $artifactsRoot 'publish').TrimEnd('\') + '\'
+        if (-not $resolvedLauncherPublishRoot.StartsWith(
+            $expectedPublishParent,
+            [StringComparison]::OrdinalIgnoreCase
+        )) {
+            throw (
+                'Refusing to replace unexpected launcher publish directory: ' +
+                $resolvedLauncherPublishRoot
+            )
+        }
+        Remove-Item `
+            -LiteralPath $resolvedLauncherPublishRoot `
+            -Recurse `
+            -Force
+    }
 
     dotnet publish $project `
         -c Release `
@@ -46,11 +68,68 @@ if (-not $SkipBuild) {
     if ($LASTEXITCODE -ne 0) {
         throw 'dotnet publish failed.'
     }
+
+    dotnet publish $launcherProject `
+        -c Release `
+        -p:Version=$Version `
+        -p:ContinuousIntegrationBuild=$continuousIntegrationBuild `
+        -o $launcherPublishRoot
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Launcher publish failed.'
+    }
 }
 
 $serviceBinary = Join-Path $publishRoot 'NvidiaAppOculinkShim.exe'
 if (-not (Test-Path -LiteralPath $serviceBinary -PathType Leaf)) {
     throw "Published service binary is missing: $serviceBinary"
+}
+$launcherBinary =
+    Join-Path $launcherPublishRoot 'NvidiaAppOculinkUpdateBridge.exe'
+if (-not (Test-Path -LiteralPath $launcherBinary -PathType Leaf)) {
+    throw "Published launcher binary is missing: $launcherBinary"
+}
+$launcherOutputs = @(Get-ChildItem -LiteralPath $launcherPublishRoot -File)
+if (
+    $launcherOutputs.Count -ne 1 -or
+    $launcherOutputs[0].Name -ne 'NvidiaAppOculinkUpdateBridge.exe'
+) {
+    throw 'The NativeAOT launcher publish directory must contain exactly one EXE.'
+}
+$serviceProductVersion =
+    [Diagnostics.FileVersionInfo]::GetVersionInfo($serviceBinary).ProductVersion
+if (
+    [string]::IsNullOrWhiteSpace($serviceProductVersion) -or
+    $serviceProductVersion -ne $Version
+) {
+    throw (
+        'The published service version does not match the package version. ' +
+        'Build again without -SkipBuild.'
+    )
+}
+$launcherProductVersion =
+    [Diagnostics.FileVersionInfo]::GetVersionInfo($launcherBinary).ProductVersion
+if (
+    [string]::IsNullOrWhiteSpace($launcherProductVersion) -or
+    (
+        $launcherProductVersion -ne $Version
+    )
+) {
+    throw (
+        'The published launcher version does not match the package version. ' +
+        'Build again without -SkipBuild.'
+    )
+}
+$launcherSelfTest = Start-Process `
+    -FilePath $launcherBinary `
+    -ArgumentList '--self-test' `
+    -WorkingDirectory $launcherPublishRoot `
+    -Wait `
+    -PassThru
+if ($launcherSelfTest.ExitCode -ne 0) {
+    throw (
+        'The published NativeAOT launcher self-test failed with exit code ' +
+        $launcherSelfTest.ExitCode + '.'
+    )
 }
 
 if (Test-Path -LiteralPath $packageRoot) {
@@ -67,20 +146,15 @@ if (Test-Path -LiteralPath $packageRoot) {
 }
 New-Item -ItemType Directory -Path $payloadRoot -Force | Out-Null
 Copy-Item -LiteralPath $serviceBinary -Destination $payloadRoot
+Copy-Item -LiteralPath $launcherBinary -Destination $packageRoot
 $installerFiles = @(
-    'Install-NvidiaAppOculinkShim.cmd',
     'Install-NvidiaAppOculinkShim.ps1',
-    'Migrate-V3ToV4.cmd',
     'Migrate-V3ToV4.ps1',
     'NvidiaAppOculinkShim.Common.psm1',
-    'Repair-NvidiaAppOculinkShim.cmd',
     'Repair-NvidiaAppOculinkShim.ps1',
-    'Setup.cmd',
     'Setup.ps1',
-    'Status.cmd',
     'Status.ps1',
     'Test-NvidiaAppOculinkShim.ps1',
-    'Uninstall-NvidiaAppOculinkShim.cmd',
     'Uninstall-NvidiaAppOculinkShim.ps1'
 )
 foreach ($installerFile in $installerFiles) {
@@ -123,11 +197,30 @@ if ($LASTEXITCODE -ne 0 -or $dotnetSdk -notmatch '^\d+\.\d+\.\d+') {
         "Version: $Version",
         "Source-Commit: $sourceCommit",
         "Dotnet-SDK: $dotnetSdk",
-        'Runtime: win-x64 self-contained',
+        'Service-Runtime: win-x64 self-contained',
+        'Launcher-Runtime: Win11 x64 NativeAOT self-contained',
         'Driver-Payloads-Included: false'
     ),
     [Text.UTF8Encoding]::new($false)
 )
+
+& (Join-Path $PSScriptRoot 'New-MaintenanceManifest.ps1') `
+    -PackagePath $packageRoot `
+    -Version $Version |
+    Out-Null
+$packagedLauncher = Join-Path $packageRoot 'NvidiaAppOculinkUpdateBridge.exe'
+$packageVerification = Start-Process `
+    -FilePath $packagedLauncher `
+    -ArgumentList '--verify-package' `
+    -WorkingDirectory $packageRoot `
+    -Wait `
+    -PassThru
+if ($packageVerification.ExitCode -ne 0) {
+    throw (
+        'The NativeAOT launcher rejected its unsigned package with exit code ' +
+        $packageVerification.ExitCode + '.'
+    )
+}
 
 & (Join-Path $PSScriptRoot 'Finalize-Package.ps1') `
     -PackagePath $packageRoot `

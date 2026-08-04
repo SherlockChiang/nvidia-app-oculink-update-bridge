@@ -16,13 +16,15 @@ CI 在普通 push 和 pull request 上生成未签名 ZIP，仅供自动化验�
 `Valid`、预配置叶证书指纹和时间戳。
 
 正式 GitHub Release 只由手动 `Signed release` 工作流创建。该工作流会重新构建、
-运行本地自测和 NVIDIA 在线元数据集成测试、签名服务 EXE 及所有 PowerShell 安装
-脚本/模块、验证 Authenticode、重建 ZIP、逐文件验证 SHA-256，并生成 GitHub/Sigstore
-来源证明，最后才创建 `v<version>` Release。
+运行本地自测和 NVIDIA 在线元数据集成测试、签名图形启动器、服务 EXE 及所有
+PowerShell 维护文件、验证 Authenticode、重建 ZIP、逐文件验证 SHA-256，并生成
+GitHub/Sigstore 来源证明，最后才创建 `v<version>` Release。
 
-`.cmd` 只是便捷入口，Windows 不支持为批处理文件添加 Authenticode。它们的完整性由
-ZIP 的 GitHub/Sigstore 来源证明和包内 SHA-256 清单覆盖；实际提权安装逻辑所在的
-PowerShell 文件则必须全部签名。
+公开包不包含 Windows 无法 Authenticode 签名的 `.cmd` 入口。启动器、服务和八个
+维护脚本/模块先签名；随后生成记录这些“签名后字节”的
+`MaintenanceManifest.ps1`，并最后签名该清单。启动器提权后把精确白名单复制到仅
+Administrator/SYSTEM 可写的随机暂存目录，再验证 WinVerifyTrust、同一叶证书、
+版本、长度和清单 SHA-256，避免从用户可写解压目录直接执行高权限内容。
 
 ## `release-signing` Environment
 
@@ -38,8 +40,8 @@ PFX、密码和私钥不得提交到仓库。工作流只将 PFX 写入 GitHub �
 目录，并在签名步骤的 `finally` 中删除；runner 任务结束后也会被销毁。checkout
 不会持久化 GitHub 凭据，仓库写 token 只显式交给最后的 `gh release create`。
 构建、测试和未签名组包在 Secrets 注入前完成；持有 PFX 的步骤只对固定白名单中的
-既有 EXE/PowerShell 文件签名，不执行 `dotnet`、项目程序或安装脚本；离开该步骤后
-才重新生成清单和 ZIP。
+既有 EXE/PowerShell 文件签名、计算其 SHA-256、生成并签名维护清单，不执行
+`dotnet`、项目程序或安装脚本；离开该步骤后才重新生成包级 SHA 清单和 ZIP。
 工作流会在签名前校验 PFX 叶证书指纹，并在签名步骤后以独立清理步骤
 删除 runner 上的临时 PFX。
 

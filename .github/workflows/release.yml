@@ -81,6 +81,7 @@ jobs:
             --project .\src\NvidiaAppOculinkShim\NvidiaAppOculinkShim.csproj `
             --configuration Release --no-build -- --self-test
           if ($LASTEXITCODE -ne 0) { throw 'Self-test failed.' }
+          .\tests\Invoke-LauncherSelfTest.ps1
           .\tests\Invoke-IntegrationTest.ps1 -Configuration Release
 
       - name: Parse every packaged PowerShell source
@@ -107,7 +108,7 @@ jobs:
         shell: pwsh
         run: .\build\Publish-Package.ps1 -Version $env:RELEASE_VERSION
 
-      - name: Sign prepared release package
+      - name: Sign launcher, service, and maintenance scripts
         shell: pwsh
         timeout-minutes: 45
         env:
@@ -170,6 +171,15 @@ jobs:
             -ArchivePath ".\artifacts\$name.zip" `
             -RequireSignature `
             -RequireTimestamp
+          $launcherVerification = Start-Process `
+            -FilePath ".\artifacts\package\$name\NvidiaAppOculinkUpdateBridge.exe" `
+            -ArgumentList '--verify-package' `
+            -WorkingDirectory ".\artifacts\package\$name" `
+            -Wait `
+            -PassThru
+          if ($launcherVerification.ExitCode -ne 0) {
+            throw 'The signed launcher rejected its release package.'
+          }
 
       - name: Attest release ZIP provenance
         uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1

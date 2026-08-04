@@ -90,9 +90,11 @@ if ($reparsePoints.Count -gt 0) {
 }
 
 $signableRelativePaths = @(
+    'NvidiaAppOculinkUpdateBridge.exe',
     'payload\NvidiaAppOculinkShim.exe',
     'Install-NvidiaAppOculinkShim.ps1',
     'Migrate-V3ToV4.ps1',
+    'MaintenanceManifest.ps1',
     'NvidiaAppOculinkShim.Common.psm1',
     'Repair-NvidiaAppOculinkShim.ps1',
     'Setup.ps1',
@@ -114,9 +116,10 @@ if ($RequireTimestamp) {
     $RequireSignature = $true
 }
 if ($RequireSignature) {
+    $serviceBinary = Join-Path $package 'payload\NvidiaAppOculinkShim.exe'
     $serviceSignature =
-        Get-AuthenticodeSignature -LiteralPath $signableFiles[0].FullName
-    $signatureByPath[$signableFiles[0].FullName] = $serviceSignature
+        Get-AuthenticodeSignature -LiteralPath $serviceBinary
+    $signatureByPath[$serviceBinary] = $serviceSignature
     if (-not $serviceSignature.SignerCertificate) {
         throw 'The service executable has no Authenticode signer certificate.'
     }
@@ -211,7 +214,8 @@ foreach ($file in $signableFiles) {
             Get-AuthenticodeSignature -LiteralPath $file.FullName
     }
 }
-$serviceSignature = $signatureByPath[$signableFiles[0].FullName]
+$serviceBinary = Join-Path $package 'payload\NvidiaAppOculinkShim.exe'
+$serviceSignature = $signatureByPath[$serviceBinary]
 [pscustomobject]@{
     Package = $package
     Archive = $archive
@@ -227,6 +231,14 @@ $serviceSignature = $signatureByPath[$signableFiles[0].FullName]
     SignedPowerShellFiles = @(
         $signableFiles |
             Where-Object Extension -in @('.ps1', '.psm1') |
+            Where-Object {
+                $useUntrustedTestRoot -or
+                $signatureByPath[$_.FullName].Status -eq 'Valid'
+            }
+    ).Count
+    SignedNativeExecutables = @(
+        $signableFiles |
+            Where-Object Extension -eq '.exe' |
             Where-Object {
                 $useUntrustedTestRoot -or
                 $signatureByPath[$_.FullName].Status -eq 'Valid'

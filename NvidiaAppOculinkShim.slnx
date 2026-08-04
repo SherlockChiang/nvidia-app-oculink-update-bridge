@@ -1,4 +1,4 @@
 <Solution>
+  <Project Path="src/NvidiaAppOculinkLauncher/NvidiaAppOculinkLauncher.csproj" />
   <Project Path="src/NvidiaAppOculinkShim/NvidiaAppOculinkShim.csproj" />
 </Solution>
-

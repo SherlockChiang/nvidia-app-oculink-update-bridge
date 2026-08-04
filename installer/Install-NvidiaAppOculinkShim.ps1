@@ -8,9 +8,17 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $appExe = 'C:\Program Files\NVIDIA Corporation\NVIDIA App\CEF\NVIDIA App.exe'
-$profilePath = 'C:\ProgramData\NVIDIA Corporation\NVIDIA App\UpdateFramework\profile-catalog\component_profiles.json'
-$localizedConfigPath = 'C:\ProgramData\NVIDIA Corporation\NVIDIA App\NvConfig\LocalizedConfig.json'
-$installRoot = Join-Path $env:ProgramData 'NVIDIAAppOCuLinkDriverShim'
+$programData = [Environment]::GetFolderPath(
+    [Environment+SpecialFolder]::CommonApplicationData
+)
+$profilePath = Join-Path $programData (
+    'NVIDIA Corporation\NVIDIA App\UpdateFramework\' +
+    'profile-catalog\component_profiles.json'
+)
+$localizedConfigPath = Join-Path $programData (
+    'NVIDIA Corporation\NVIDIA App\NvConfig\LocalizedConfig.json'
+)
+$installRoot = Join-Path $programData 'NVIDIAAppOCuLinkDriverShim'
 $runtimeRoot = Join-Path $installRoot 'runtime'
 $statePath = Join-Path $installRoot 'state.json'
 $configPath = Join-Path $installRoot 'config.json'

@@ -70,6 +70,7 @@ jobs:
             --project .\src\NvidiaAppOculinkShim\NvidiaAppOculinkShim.csproj `
             --configuration Release --no-build -- --self-test
           if ($LASTEXITCODE -ne 0) { throw 'Self-test failed.' }
+          .\tests\Invoke-LauncherSelfTest.ps1
           .\tests\Test-ReleaseVersion.ps1
 
       - name: Build and validate unsigned test package

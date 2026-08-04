@@ -45,8 +45,7 @@ function Remove-TestArtifact {
 try {
     New-Item -ItemType Directory -Path $artifactsRoot -Force | Out-Null
     & (Join-Path $repositoryRoot 'build\Publish-Package.ps1') `
-        -Version $testVersion `
-        -SkipBuild
+        -Version $testVersion
 
     Write-Output 'Creating an isolated test CA and code-signing certificate ...'
     $issuerRsa = [Security.Cryptography.RSA]::Create(2048)
@@ -207,6 +206,56 @@ try {
         -UntrustedTestRootCertificatePath $issuerCerPath `
         -TimestampServer ''
 
+    $runtimeTrustStartInfo = [Diagnostics.ProcessStartInfo]::new()
+    $runtimeTrustStartInfo.FileName =
+        Join-Path $packageRoot 'NvidiaAppOculinkUpdateBridge.exe'
+    $runtimeTrustStartInfo.Arguments = '--verify-package'
+    $runtimeTrustStartInfo.WorkingDirectory = $packageRoot
+    $runtimeTrustStartInfo.UseShellExecute = $false
+    $runtimeTrustStartInfo.CreateNoWindow = $true
+    $runtimeTrustStartInfo.RedirectStandardOutput = $true
+    $runtimeTrustStartInfo.RedirectStandardError = $true
+    $runtimeTrustProcess = [Diagnostics.Process]::new()
+    $runtimeTrustProcess.StartInfo = $runtimeTrustStartInfo
+    try {
+        if (-not $runtimeTrustProcess.Start()) {
+            throw 'The launcher runtime trust process did not start.'
+        }
+        $runtimeTrustOutputTask =
+            $runtimeTrustProcess.StandardOutput.ReadToEndAsync()
+        $runtimeTrustErrorTask =
+            $runtimeTrustProcess.StandardError.ReadToEndAsync()
+        if (-not $runtimeTrustProcess.WaitForExit(30000)) {
+            Stop-Process `
+                -Id $runtimeTrustProcess.Id `
+                -Force `
+                -ErrorAction SilentlyContinue
+            $runtimeTrustProcess.WaitForExit()
+            throw 'The launcher runtime trust rejection timed out.'
+        }
+        [Threading.Tasks.Task]::WaitAll(@(
+            $runtimeTrustOutputTask,
+            $runtimeTrustErrorTask
+        ))
+        $runtimeTrustExitCode = $runtimeTrustProcess.ExitCode
+        $runtimeTrustOutput = $runtimeTrustOutputTask.Result
+        $runtimeTrustError = $runtimeTrustErrorTask.Result
+    } finally {
+        $runtimeTrustProcess.Dispose()
+    }
+    if ($runtimeTrustExitCode -eq 0) {
+        throw 'The launcher runtime accepted the untrusted test certificate.'
+    }
+    if ($runtimeTrustError -notmatch 'WinVerifyTrust=0x800B0109') {
+        throw (
+            'The launcher failed for an unexpected reason instead of ' +
+            'CERT_E_UNTRUSTEDROOT (0x800B0109). stdout=' +
+            $runtimeTrustOutput.Trim() + '; stderr=' +
+            $runtimeTrustError.Trim()
+        )
+    }
+    Write-Output 'Launcher runtime trust gate rejected the untrusted test root.'
+
     $strictTrustRejected = $false
     try {
         & (Join-Path $repositoryRoot 'build\Finalize-Package.ps1') `
@@ -224,33 +273,52 @@ try {
     }
     Write-Output 'Strict release trust gate rejected the untrusted test root.'
 
-    $tamperTarget = Join-Path $packageRoot 'Setup.ps1'
-    $originalBytes = [IO.File]::ReadAllBytes($tamperTarget)
-    $tamperedBytes = [byte[]]$originalBytes.Clone()
-    $tamperedBytes[0] = $tamperedBytes[0] -bxor 1
-    $tamperRejected = $false
-    try {
-        [IO.File]::WriteAllBytes($tamperTarget, $tamperedBytes)
-        try {
-            & (Join-Path $repositoryRoot 'build\Finalize-Package.ps1') `
-                -PackagePath $packageRoot `
-                -ArchivePath $archivePath `
-                -RequireSignature `
-                -UntrustedTestRootCertificatePath $issuerCerPath `
-                -ExpectedTestSignerThumbprint $certificate.Thumbprint
-        } catch {
-            if ($_.Exception.Message -notmatch 'HashMismatch') {
-                throw
-            }
-            $tamperRejected = $true
+    foreach ($tamperRelativePath in @(
+        'Setup.ps1',
+        'NvidiaAppOculinkUpdateBridge.exe',
+        'MaintenanceManifest.ps1'
+    )) {
+        $tamperTarget = Join-Path $packageRoot $tamperRelativePath
+        $originalBytes = [IO.File]::ReadAllBytes($tamperTarget)
+        $tamperedBytes = [byte[]]$originalBytes.Clone()
+        $tamperOffset = if (
+            [IO.Path]::GetExtension($tamperRelativePath) -eq '.exe'
+        ) {
+            [Math]::Min(4096, $tamperedBytes.Length - 1)
+        } else {
+            0
         }
-    } finally {
-        [IO.File]::WriteAllBytes($tamperTarget, $originalBytes)
+        $tamperedBytes[$tamperOffset] =
+            $tamperedBytes[$tamperOffset] -bxor 1
+        $tamperRejected = $false
+        try {
+            [IO.File]::WriteAllBytes($tamperTarget, $tamperedBytes)
+            try {
+                & (Join-Path $repositoryRoot 'build\Finalize-Package.ps1') `
+                    -PackagePath $packageRoot `
+                    -ArchivePath $archivePath `
+                    -RequireSignature `
+                    -UntrustedTestRootCertificatePath $issuerCerPath `
+                    -ExpectedTestSignerThumbprint $certificate.Thumbprint
+            } catch {
+                if ($_.Exception.Message -notmatch 'HashMismatch') {
+                    throw
+                }
+                $tamperRejected = $true
+            }
+        } finally {
+            [IO.File]::WriteAllBytes($tamperTarget, $originalBytes)
+        }
+        if (-not $tamperRejected) {
+            throw (
+                'The signature gate accepted a tampered signed file: ' +
+                $tamperRelativePath
+            )
+        }
+        Write-Output (
+            'Authenticode gate rejected tampering of ' + $tamperRelativePath + '.'
+        )
     }
-    if (-not $tamperRejected) {
-        throw 'The signature gate accepted a tampered signed file.'
-    }
-    Write-Output 'Authenticode gate rejected a tampered signed file.'
 
     & (Join-Path $repositoryRoot 'build\Finalize-Package.ps1') `
         -PackagePath $packageRoot `

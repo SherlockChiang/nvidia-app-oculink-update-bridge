@@ -38,9 +38,32 @@ configuration and Windows Service registration are protected system changes.
 The continuously running service cannot rewrite its own binary/configuration or
 NVIDIA App configuration.
 
-Official release packages require valid Authenticode signatures on the service
-executable and all packaged PowerShell installer/module files. The signed
-release workflow also publishes GitHub/Sigstore provenance attestations for the
-ZIP and checksum sidecar. The `.cmd` files are thin convenience launchers and
-are covered by the attested ZIP and SHA-256 manifest; Windows does not support
-Authenticode signing for batch files.
+Official release packages require valid, timestamped Authenticode signatures
+from one expected publisher on the Windows launcher, service executable,
+maintenance manifest, and every packaged PowerShell installer/module file. The
+signed release workflow also publishes GitHub/Sigstore provenance attestations
+for the ZIP and checksum sidecar. Public packages do not contain the legacy
+unsigned `.cmd` entry points.
+
+The launcher is a self-contained x64 NativeAOT executable, so adjacent CLR
+configuration, startup-hook, or profiler inputs cannot run before its trust
+checks. Its PE dependent-load policy and every dynamic P/Invoke restrict DLL
+resolution to System32 before managed entry. It is `asInvoker`; status checks remain unprivileged. Setup, repair,
+and uninstall restart the same launcher through Windows `runas`, so UAC can
+identify its Authenticode publisher. A read-only, identity-checked lease prevents
+that launcher path from being renamed, overwritten, or replaced between trust
+validation and elevated process creation. The elevated child copies only a compiled
+allowlist into a random Administrator/SYSTEM-only ProgramData staging
+directory, then rechecks WinVerifyTrust, the common signer, file lengths, and
+SHA-256 values from the signed maintenance manifest. WinVerifyTrust checks
+revocation for the signer chain (excluding the root) and fails closed when
+revocation status cannot be established. Only then does it invoke
+the absolute System32 Windows PowerShell with a sanitized system search path.
+The staging directory is removed after success or failure.
+
+Unsigned CI/local builds deliberately remain usable for controlled testing,
+but only for deterministic self-tests and read-only status inspection. The
+launcher refuses privileged maintenance when unsigned. A present-but-invalid
+or untrusted signature fails closed; it cannot fall back to unsigned
+development mode. Unsigned builds must not be redistributed as end-user
+releases.
