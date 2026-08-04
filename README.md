@@ -15,7 +15,9 @@ App are trademarks of their respective owners.
 
 ## Current status
 
-- The inherited v3 implementation is preserved under [`legacy-v3`](legacy-v3).
+- The retired v3 implementation remains available in Git history and the
+  [`v4.1.0-rc.1` tag](https://github.com/SherlockChiang/nvidia-app-oculink-update-bridge/tree/v4.1.0-rc.1/legacy-v3),
+  but is no longer carried in the active source tree.
 - A dependency-free .NET service implementation lives under
   [`src/NvidiaAppOculinkShim`](src/NvidiaAppOculinkShim). It compiles without
   third-party NuGet packages and includes direct Windows SCM integration.
@@ -40,7 +42,7 @@ read the [signed GitHub release guide](docs/github-release.zh-CN.md).
 
 Build output is an x64 ZIP. Both the service and native Windows launcher are
 self-contained; users do not install a separate runtime. The following steps
-apply to a trusted signed package. The current `v4.1.0-rc.1` unsigned
+apply to a trusted signed package. The current `v4.1.0-rc.2` unsigned
 prerelease uses the installer-batch path documented in the next subsection.
 After extraction:
 
@@ -68,12 +70,14 @@ For trusted signed GitHub Releases, verify both the published SHA-256 manifest
 and the Authenticode signature before approving UAC. Do not install binaries
 attached to issues or supplied by third parties.
 
-### `v4.1.0-rc.1` unsigned installer-batch preview
+### `v4.1.0-rc.2` unsigned installer-batch preview
 
 This prerelease is an advanced-user preview without a trusted Authenticode
 publisher. Verify the ZIP SHA-256, extract it, and start setup from a normal
-user session with `installer\Setup.cmd`. Status, repair, and uninstall batch
-entry points are in the same directory. The unsigned NativeAOT launcher still
+user session with `installer\Setup.cmd`. Status and uninstall batch entry
+points are in the same directory. Setup automatically selects a fresh
+install, v3 migration, or v4 repair; the public batch surface therefore exposes
+only setup, status, and uninstall. The unsigned NativeAOT launcher still
 refuses privileged maintenance by design, so this preview uses the batch entry
 points instead.
 
@@ -91,8 +95,11 @@ starts the fixed system Windows PowerShell. Native static/dynamic DLL loading is
 System32-scoped, and a file-identity-checked read lease prevents replacement of
 the verified launcher before UAC creates the elevated child. Normal and signed
 packages do not include the legacy `.cmd` entry points. Only the explicit
-unsigned-preview package mode adds the fixed six-file set under `installer`,
-together with a prominent warning.
+unsigned-preview package mode adds the fixed three-file lifecycle set under
+`installer`, together with a prominent warning. Installer ZIPs contain only
+runtime/maintenance files, a package-specific English installation guide,
+license, build metadata, and checksums; repository source, tests, changelog, and
+maintainer documentation stay in the repository.
 
 ## Developer commands
 

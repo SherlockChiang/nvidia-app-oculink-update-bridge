@@ -69,11 +69,6 @@ if ($reparsePoints.Count -gt 0) {
     throw "The package contains a reparse point: $($reparsePoints[0].FullName)"
 }
 $installerBatchScripts = [ordered]@{
-    'installer\Install-NvidiaAppOculinkShim.cmd' =
-        'Install-NvidiaAppOculinkShim.ps1'
-    'installer\Migrate-V3ToV4.cmd' = 'Migrate-V3ToV4.ps1'
-    'installer\Repair-NvidiaAppOculinkShim.cmd' =
-        'Repair-NvidiaAppOculinkShim.ps1'
     'installer\Setup.cmd' = 'Setup.ps1'
     'installer\Status.cmd' = 'Status.ps1'
     'installer\Uninstall-NvidiaAppOculinkShim.cmd' =
@@ -100,15 +95,8 @@ $requiredFiles = @(
     'Test-NvidiaAppOculinkShim.ps1',
     'Uninstall-NvidiaAppOculinkShim.ps1',
     'payload\NvidiaAppOculinkShim.exe',
-    'README.md',
-    'README.zh-CN.md',
+    'INSTALL.md',
     'LICENSE',
-    'SECURITY.md',
-    'CHANGELOG.md',
-    'docs\github-release.zh-CN.md',
-    'docs\product-architecture.zh-CN.md',
-    'docs\release-status.zh-CN.md',
-    'docs\workflow.zh-CN.md',
     'BUILD-INFO.txt',
     'SHA256SUMS.txt'
 )
@@ -120,6 +108,22 @@ foreach ($relative in $requiredFiles) {
     $candidate = Join-Path $package $relative
     if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
         throw "Package file is missing: $relative"
+    }
+}
+$installGuide = Get-Content -LiteralPath (Join-Path $package 'INSTALL.md') -Raw
+foreach ($requiredInstallText in @(
+    'It contains no NVIDIA',
+    'repository source, tests, changelog, or maintainer documents.',
+    'installer\Setup.cmd',
+    'installer\Status.cmd',
+    'installer\Uninstall-NvidiaAppOculinkShim.cmd',
+    'NvidiaAppOculinkUpdateBridge.exe'
+)) {
+    if ($installGuide.IndexOf(
+        $requiredInstallText,
+        [StringComparison]::Ordinal
+    ) -lt 0) {
+        throw "The package installation guide is incomplete: $requiredInstallText"
     }
 }
 $allowedPackagePaths = [Collections.Generic.HashSet[string]]::new(
@@ -162,6 +166,26 @@ $batchFlagLines = @(
 if ($batchFlagLines.Count -ne 1) {
     throw 'BUILD-INFO does not match the expected installer-batch package mode.'
 }
+$expectedPackageProfile = if ($ExpectInstallerBatchFiles) {
+    'installer-batch-preview'
+} else {
+    'native-launcher'
+}
+if (@($buildInfoLines | Where-Object {
+    $_ -eq "Package-Profile: $expectedPackageProfile"
+}).Count -ne 1) {
+    throw 'BUILD-INFO does not match the expected package profile.'
+}
+if (@($buildInfoLines | Where-Object {
+    $_ -eq 'Repository-Source-Included: false'
+}).Count -ne 1) {
+    throw 'BUILD-INFO must exclude repository source.'
+}
+if (@($buildInfoLines | Where-Object {
+    $_ -eq 'Maintainer-Documentation-Included: false'
+}).Count -ne 1) {
+    throw 'BUILD-INFO must exclude maintainer documentation.'
+}
 if ($ExpectInstallerBatchFiles) {
     $previewMarkerPath = Join-Path $package 'UNSIGNED-PREVIEW.txt'
     $previewMarker = Get-Content -LiteralPath $previewMarkerPath -Raw
@@ -170,6 +194,9 @@ if ($ExpectInstallerBatchFiles) {
         "Version: $packageVersion",
         'This package is not Authenticode signed.',
         'installer\Setup.cmd',
+        'Setup automatically selects a fresh install, v3 migration, or v4 repair.',
+        'installer\Status.cmd',
+        'installer\Uninstall-NvidiaAppOculinkShim.cmd',
         'Do not redistribute this preview as a trusted or production-ready installer.'
     )) {
         if ($previewMarker.IndexOf(

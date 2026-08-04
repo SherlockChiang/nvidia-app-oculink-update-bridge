@@ -2,9 +2,10 @@
 
 ## Supported versions
 
-Only the latest published v4 release is supported. The `legacy-v3` directory is
-retained for investigation history and migration compatibility; it is not the
-recommended deployment.
+Only the latest published v4 release is supported. The retired v3 source is
+available from Git history and old tags for investigation, but is not part of
+the active tree or a supported deployment. The v3-to-v4 migration path remains
+supported by the current installer.
 
 ## Reporting a vulnerability
 
@@ -69,7 +70,7 @@ development mode. Unsigned builds must not be redistributed as end-user
 releases that claim a verified publisher or the signed-launcher maintenance
 boundary.
 
-An explicitly marked unsigned prerelease may include the fixed six-file batch
+An explicitly marked unsigned prerelease may include the fixed three-file batch
 entry-point set under `installer` for advanced testing. That mode is mutually
 exclusive with signature-required packaging. Its `.cmd` files launch unsigned
 PowerShell maintenance scripts outside the NativeAOT launcher's signature,

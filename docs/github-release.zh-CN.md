@@ -69,7 +69,7 @@ gh attestation verify .\NvidiaAppOculinkUpdateBridge-<version>-win-x64.zip `
 和 ZIP 内的 `UNSIGNED-PREVIEW.txt` 都要声明没有可信 Authenticode 发布者：
 
 ```powershell
-$version = '4.1.0-rc.1'
+$version = '4.1.0-rc.2'
 .\build\Publish-Package.ps1 `
   -Version $version -IncludeInstallerBatchFiles
 $name = "NvidiaAppOculinkUpdateBridge-$version-win-x64"
@@ -79,7 +79,8 @@ $name = "NvidiaAppOculinkUpdateBridge-$version-win-x64"
   -ExpectInstallerBatchFiles
 ```
 
-该模式只在 `installer` 子目录加入固定 6 个 `.cmd`，并与 `-RequireSignature`、时间戳
+该模式只在 `installer` 子目录加入固定 3 个 `.cmd`（Setup、Status、Uninstall），
+Setup 会自动选择首次安装、v3 迁移或 v4 修复。该模式与 `-RequireSignature`、时间戳
 及临时签名测试模式互斥。批处理绕过 NativeAOT 启动器的同发布者验签和安全暂存链，
 因此 UAC 只能识别 Windows PowerShell，不能证明脚本来自本项目。它不生成签名发布的
 GitHub/Sigstore 来源证明，也不能被改名为 stable 或“受信任安装包”。取得可信证书后

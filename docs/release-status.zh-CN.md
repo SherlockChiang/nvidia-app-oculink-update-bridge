@@ -22,10 +22,10 @@
   状态不提权，维护动作由同一 EXE 请求一次 UAC；
 - 启动器会把 9 个固定维护输入复制到 Administrator/SYSTEM-only 随机暂存目录，
   重新校验签名者、版本、长度和签名维护清单 SHA-256；
-- 未签名完整 ZIP（22 个文件）和 11 文件临时 Authenticode 全链路均已通过；脚本、
+- 未签名完整 ZIP（15 个文件）和 11 文件临时 Authenticode 全链路均已通过；脚本、
   启动器和维护清单的逐字节篡改均被拒绝，临时证书/PFX/包无残留。
-- 显式 installer-batch preview 精确包含 29 个文件、28 条包级 SHA-256 和 6 个
-  `installer` 批处理；未声明 preview 或同时要求签名时均被测试拒绝，普通 22 文件包
+- 显式 installer-batch preview 精确包含 19 个文件、18 条包级 SHA-256 和 3 个
+  `installer` 批处理；未声明 preview 或同时要求签名时均被测试拒绝，普通 15 文件包
   和 11 文件签名门禁回归仍通过。
 
 ## 可信正式发布前仍需
@@ -41,7 +41,7 @@
 - 决定正式图标和后续版本更新渠道。
 
 仓库已经包含 MIT 许可证、无遥测说明、CI 与强制签名 Release 工作流。
-`v4.1.0-rc.1` 作为用户明确要求的高级用户 unsigned prerelease，额外包含
+`v4.1.0-rc.2` 作为精简后的高级用户 unsigned prerelease，仅额外包含
 `installer` 子目录中的固定批处理入口和包内风险说明；它不是可信发布者安装包，不能
 标记为 stable。取得可信签名证书并完成干净机验收后，首个可信安装包仍应通过
 `Signed release` 工作流发布，并恢复为不含 `.cmd` 的签名启动器维护路径。

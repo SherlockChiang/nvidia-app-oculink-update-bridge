@@ -122,6 +122,23 @@ try {
         -Recurse
     Copy-Item -LiteralPath $archive -Destination $negativeArchive
 
+    $rogueDocumentation = Join-Path $negativePackage 'README.md'
+    [IO.File]::WriteAllText(
+        $rogueDocumentation,
+        "Repository documentation must not be shipped.`r`n",
+        [Text.UTF8Encoding]::new($false)
+    )
+    Assert-Rejected `
+        -Description 'Preview containing repository documentation' `
+        -ExpectedMessage 'The package file set does not match the explicit allowlist.' `
+        -Action {
+            & $testPackageScript `
+                -PackagePath $negativePackage `
+                -ArchivePath $negativeArchive `
+                -ExpectInstallerBatchFiles
+        }
+    Remove-Item -LiteralPath $rogueDocumentation -Force
+
     $rogueBatch = Join-Path $negativePackage 'installer\Unexpected.cmd'
     [IO.File]::WriteAllText(
         $rogueBatch,

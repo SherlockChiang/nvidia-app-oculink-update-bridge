@@ -17,7 +17,7 @@
 ## 使用
 
 可信签名版从 GitHub Releases 下载 Win11 x64 ZIP，解压后按以下方式使用。当前
-`v4.1.0-rc.1` unsigned prerelease 不适用此维护入口，请直接看下一小节。
+`v4.1.0-rc.2` unsigned prerelease 不适用此维护入口，请直接看下一小节。
 
 1. 双击 `NvidiaAppOculinkUpdateBridge.exe`；
 2. 选择“安装或升级”，并批准一次由同一启动器发起的 UAC；
@@ -29,12 +29,13 @@
 启动器会自动判断首次安装、从 v3 迁移或修复/升级 v4。后台服务和 x64 NativeAOT
 图形启动器均为自包含程序，不要求用户另装运行库。
 
-### `v4.1.0-rc.1` 未签名批处理预览
+### `v4.1.0-rc.2` 未签名批处理预览
 
 该 prerelease 按高级用户预览方式提供，尚无可信 Authenticode 发布者。核对 ZIP 的
-SHA-256 并解压后，从普通用户会话双击 `installer\Setup.cmd`；状态、修复和卸载入口也
-在同一目录。未签名 NativeAOT 启动器仍会按设计拒绝提权维护，因此该预览必须通过
-批处理入口操作。
+SHA-256 并解压后，从普通用户会话双击 `installer\Setup.cmd`；状态和卸载入口也在
+同一目录。Setup 会自动选择首次安装、v3 迁移或 v4 修复，因此公开批处理只保留安装、
+状态和卸载三个生命周期入口。未签名 NativeAOT 启动器仍会按设计拒绝提权维护，因此
+该预览必须通过批处理入口操作。
 
 批处理会启动项目中的未签名 PowerShell 脚本并自行请求 UAC；UAC 显示的是 Windows
 PowerShell，而不是本项目的已验证发布者。宿主固定为 System32 Windows PowerShell，
@@ -72,6 +73,7 @@ GitHub/Sigstore 构建来源证明。
 版本和受签名清单中的 SHA-256。静态/动态 DLL 加载均限定到 System32；验签后到 UAC
 创建管理员子进程期间，启动器还会持有并核对自身文件租约，阻止路径替换。普通包和
 签名包不包含旧 `.cmd` 入口；只有显式 unsigned preview 模式会在 `installer` 子目录
-加入固定的 6 个批处理，并附带风险说明。
+加入固定的 3 个批处理，并附带风险说明。安装 ZIP 只携带运行/维护文件、专用英文安装
+说明、许可证、构建元数据和校验值；源码、测试、变更记录与维护者文档只留在仓库中。
 
 本项目采用 [MIT License](LICENSE)。

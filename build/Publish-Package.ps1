@@ -20,6 +20,11 @@ $payloadRoot = Join-Path $packageRoot 'payload'
 $archivePath = Join-Path $artifactsRoot ($packageName + '.zip')
 $continuousIntegrationBuild =
     if ($env:GITHUB_ACTIONS -eq 'true') { 'true' } else { 'false' }
+$packageProfile = if ($IncludeInstallerBatchFiles) {
+    'installer-batch-preview'
+} else {
+    'native-launcher'
+}
 
 & (Join-Path $PSScriptRoot 'Assert-SemVer.ps1') -Version $Version |
     Out-Null
@@ -168,9 +173,6 @@ if ($IncludeInstallerBatchFiles) {
     New-Item -ItemType Directory -Path $installerBatchRoot -Force |
         Out-Null
     $installerBatchFiles = @(
-        'Install-NvidiaAppOculinkShim.cmd',
-        'Migrate-V3ToV4.cmd',
-        'Repair-NvidiaAppOculinkShim.cmd',
         'Setup.cmd',
         'Status.cmd',
         'Uninstall-NvidiaAppOculinkShim.cmd'
@@ -195,28 +197,19 @@ if ($IncludeInstallerBatchFiles) {
             'Windows PowerShell, rather than this project, will appear in the UAC prompt.',
             'Review the scripts and verify the published ZIP SHA-256 before use.',
             'For setup or upgrade, open installer\Setup.cmd from a normal user session.',
+            'Setup automatically selects a fresh install, v3 migration, or v4 repair.',
+            'Use installer\Status.cmd for status and installer\Uninstall-NvidiaAppOculinkShim.cmd to uninstall.',
             'Do not redistribute this preview as a trusted or production-ready installer.'
         ),
         [Text.UTF8Encoding]::new($false)
     )
 }
 Copy-Item `
-    -LiteralPath (Join-Path $repositoryRoot 'README.md') `
+    -LiteralPath (Join-Path $repositoryRoot 'LICENSE') `
     -Destination $packageRoot
-foreach ($publicFile in @(
-    'README.zh-CN.md',
-    'LICENSE',
-    'SECURITY.md',
-    'CHANGELOG.md'
-)) {
-    Copy-Item `
-        -LiteralPath (Join-Path $repositoryRoot $publicFile) `
-        -Destination $packageRoot
-}
 Copy-Item `
-    -LiteralPath (Join-Path $repositoryRoot 'docs') `
-    -Destination $packageRoot `
-    -Recurse
+    -LiteralPath (Join-Path $repositoryRoot 'packaging\INSTALL.md') `
+    -Destination $packageRoot
 
 $sourceCommit = (
     git -c "safe.directory=$($repositoryRoot.Replace('\', '/'))" `
@@ -235,9 +228,12 @@ if ($LASTEXITCODE -ne 0 -or $dotnetSdk -notmatch '^\d+\.\d+\.\d+') {
         "Version: $Version",
         "Source-Commit: $sourceCommit",
         "Dotnet-SDK: $dotnetSdk",
+        "Package-Profile: $packageProfile",
         'Service-Runtime: win-x64 self-contained',
         'Launcher-Runtime: Win11 x64 NativeAOT self-contained',
         "Installer-Batch-Files-Included: $($IncludeInstallerBatchFiles.ToString().ToLowerInvariant())",
+        'Repository-Source-Included: false',
+        'Maintainer-Documentation-Included: false',
         'Driver-Payloads-Included: false'
     ),
     [Text.UTF8Encoding]::new($false)

@@ -62,8 +62,7 @@ try {
 } catch {
     Write-Error $_
     Write-Output (
-        'Open NvidiaAppOculinkUpdateBridge.exe and choose ' +
-        '"Set up or upgrade" to install or repair the bridge.'
+        'Run the package Setup entry point to install or repair the bridge.'
     )
     exit 1
 }

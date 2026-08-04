@@ -91,9 +91,6 @@ if ($reparsePoints.Count -gt 0) {
 }
 
 $installerBatchRelativePaths = @(
-    'installer\Install-NvidiaAppOculinkShim.cmd',
-    'installer\Migrate-V3ToV4.cmd',
-    'installer\Repair-NvidiaAppOculinkShim.cmd',
     'installer\Setup.cmd',
     'installer\Status.cmd',
     'installer\Uninstall-NvidiaAppOculinkShim.cmd'
@@ -126,6 +123,26 @@ $batchFlagLines = @(
 )
 if ($batchFlagLines.Count -ne 1) {
     throw 'BUILD-INFO does not match the installer-batch package mode.'
+}
+$expectedPackageProfile = if ($IncludeInstallerBatchFiles) {
+    'installer-batch-preview'
+} else {
+    'native-launcher'
+}
+if (@($buildInfo | Where-Object {
+    $_ -eq "Package-Profile: $expectedPackageProfile"
+}).Count -ne 1) {
+    throw 'BUILD-INFO does not match the package profile.'
+}
+if (@($buildInfo | Where-Object {
+    $_ -eq 'Repository-Source-Included: false'
+}).Count -ne 1) {
+    throw 'BUILD-INFO must exclude repository source.'
+}
+if (@($buildInfo | Where-Object {
+    $_ -eq 'Maintainer-Documentation-Included: false'
+}).Count -ne 1) {
+    throw 'BUILD-INFO must exclude maintainer documentation.'
 }
 if ($IncludeInstallerBatchFiles) {
     if ($RequireSignature -or $RequireTimestamp) {

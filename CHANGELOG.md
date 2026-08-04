@@ -5,6 +5,33 @@ All notable changes to this project are documented in this file. Versions use
 
 ## Unreleased
 
+## 4.1.0-rc.2 - 2026-08-04
+
+### Changed
+
+- Reduce the unsigned preview to three user-facing lifecycle commands: setup,
+  status, and uninstall. Setup continues to select fresh install, v3 migration,
+  or v4 repair automatically.
+- Replace repository documentation inside the installer ZIP with one concise,
+  package-specific English installation guide.
+- Enforce exact minimal package sets: 15 files for launcher-based packages and
+  19 files for the explicit installer-batch preview.
+
+### Removed
+
+- Remove repository source documentation, changelog, security policy, and
+  translated README from installer ZIPs.
+- Remove the retired `legacy-v3` source snapshot and three redundant internal
+  action batch wrappers from the active tree. The old implementation remains
+  available from Git history and the `v4.1.0-rc.1` tag.
+
+### Security
+
+- Keep all nine launcher maintenance inputs and the signed-manifest trust model
+  intact while tightening the public ZIP allowlist.
+- Continue to reject any preview package in the signing path and require all 11
+  signable preview files to remain consistently unsigned.
+
 ## 4.1.0-rc.1 - 2026-08-04
 
 ### Added

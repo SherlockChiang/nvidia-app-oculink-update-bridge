@@ -55,8 +55,9 @@ $buildInfoPath = Join-Path $package 'BUILD-INFO.txt'
 if (-not (Test-Path -LiteralPath $buildInfoPath -PathType Leaf)) {
     throw 'BUILD-INFO.txt is missing.'
 }
+$buildInfo = Get-Content -LiteralPath $buildInfoPath
 $batchModeLines = @(
-    Get-Content -LiteralPath $buildInfoPath |
+    $buildInfo |
         Where-Object { $_ -match '^Installer-Batch-Files-Included: (.+)$' }
 )
 if (
@@ -64,6 +65,21 @@ if (
     $batchModeLines[0] -ne 'Installer-Batch-Files-Included: false'
 ) {
     throw 'Refusing to sign a package with an invalid installer-batch mode.'
+}
+if (@($buildInfo | Where-Object {
+    $_ -eq 'Package-Profile: native-launcher'
+}).Count -ne 1) {
+    throw 'Refusing to sign a package with an invalid package profile.'
+}
+if (@($buildInfo | Where-Object {
+    $_ -eq 'Repository-Source-Included: false'
+}).Count -ne 1) {
+    throw 'Refusing to sign a package containing repository source.'
+}
+if (@($buildInfo | Where-Object {
+    $_ -eq 'Maintainer-Documentation-Included: false'
+}).Count -ne 1) {
+    throw 'Refusing to sign a package containing maintainer documentation.'
 }
 
 $certificatePath =
