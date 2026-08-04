@@ -9,6 +9,15 @@ $appExe = 'C:\Program Files\NVIDIA Corporation\NVIDIA App\CEF\NVIDIA App.exe'
 $programData = [Environment]::GetFolderPath(
     [Environment+SpecialFolder]::CommonApplicationData
 )
+$windowsDirectory = [Environment]::GetFolderPath(
+    [Environment+SpecialFolder]::Windows
+)
+$systemPowerShell = Join-Path `
+    $windowsDirectory `
+    'System32\WindowsPowerShell\v1.0\powershell.exe'
+if (-not (Test-Path -LiteralPath $systemPowerShell -PathType Leaf)) {
+    throw 'The fixed System32 Windows PowerShell executable is missing.'
+}
 $profilePath = Join-Path $programData (
     'NVIDIA Corporation\NVIDIA App\UpdateFramework\' +
     'profile-catalog\component_profiles.json'
@@ -449,7 +458,13 @@ if (-not $ElevatedPhase) {
         '-File', "`"$PSCommandPath`"",
         '-ElevatedPhase'
     )
-    $process = Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $arguments -WindowStyle Hidden -Wait -PassThru
+    $process = Start-Process `
+        -FilePath $systemPowerShell `
+        -Verb RunAs `
+        -ArgumentList $arguments `
+        -WindowStyle Hidden `
+        -Wait `
+        -PassThru
     if ($process.ExitCode -ne 0) {
         $errorLog = Join-Path $runtimeRoot 'uninstall-error.log'
         $detail = if (Test-Path -LiteralPath $errorLog) {

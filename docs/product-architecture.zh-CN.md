@@ -36,7 +36,7 @@ v4 已直接接入 Windows Service Control Manager：
 
 ## 签名启动器与一次 UAC
 
-公开 ZIP 的统一入口是 x64 NativeAOT `NvidiaAppOculinkUpdateBridge.exe`，不启动
+可信正式 ZIP 的统一入口是 x64 NativeAOT `NvidiaAppOculinkUpdateBridge.exe`，不启动
 CLR，也不读取相邻 `.exe.config`。PE 的静态依赖加载标志和程序集级 P/Invoke 策略都
 限定为 System32，并在进入托管入口后继续收紧 DLL 搜索。PE manifest 固定为
 `asInvoker`：检查状态不会提权，安装、修复
@@ -57,6 +57,13 @@ Known Folder。无论成功、失败还是 UAC 取消，都返回稳定退出码
 
 CI/本地未签名构建只允许在明确警告后执行自测和只读状态检查，并拒绝提权维护；正式
 Release 门禁不接受未签名模式。
+
+显式 installer-batch preview 是独立的安全降级通道：仅 unsigned prerelease 可在
+`installer` 子目录携带固定 6 个 `.cmd`，由它们直接启动根目录的 PowerShell 维护脚本。
+这条路径不具备启动器的同发布者验签、文件租约或受保护暂存保证，UAC 也只显示
+Windows PowerShell。批处理和脚本自提权均使用 Known Folder 下的固定 System32
+PowerShell，避免当前目录/`PATH` 宿主替换。打包器、签名器和测试器强制它与签名模式
+互斥；可信正式包始终排除该目录。
 
 ## 用户可见状态
 

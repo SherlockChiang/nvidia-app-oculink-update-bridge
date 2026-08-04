@@ -40,6 +40,32 @@ if (-not $package.StartsWith(
     throw "Package must be below the repository artifacts directory: $package"
 }
 
+$previewMarker = Join-Path $package 'UNSIGNED-PREVIEW.txt'
+if (Test-Path -LiteralPath $previewMarker) {
+    throw 'Refusing to sign an installer-batch preview package.'
+}
+$batchFiles = @(
+    Get-ChildItem -LiteralPath $package -Recurse -File |
+        Where-Object Extension -eq '.cmd'
+)
+if ($batchFiles.Count -ne 0) {
+    throw "Refusing to sign a package containing .cmd: $($batchFiles[0].Name)"
+}
+$buildInfoPath = Join-Path $package 'BUILD-INFO.txt'
+if (-not (Test-Path -LiteralPath $buildInfoPath -PathType Leaf)) {
+    throw 'BUILD-INFO.txt is missing.'
+}
+$batchModeLines = @(
+    Get-Content -LiteralPath $buildInfoPath |
+        Where-Object { $_ -match '^Installer-Batch-Files-Included: (.+)$' }
+)
+if (
+    $batchModeLines.Count -ne 1 -or
+    $batchModeLines[0] -ne 'Installer-Batch-Files-Included: false'
+) {
+    throw 'Refusing to sign a package with an invalid installer-batch mode.'
+}
+
 $certificatePath =
     (Resolve-Path -LiteralPath $SigningCertificatePath).Path
 $repositoryPrefix = [IO.Path]::GetFullPath($repositoryRoot).TrimEnd('\') + '\'
@@ -189,7 +215,6 @@ try {
         & $signFile $file
     }
 
-    $buildInfoPath = Join-Path $package 'BUILD-INFO.txt'
     $versionLine = @(
         Get-Content -LiteralPath $buildInfoPath |
             Where-Object { $_ -match '^Version: (.+)$' }

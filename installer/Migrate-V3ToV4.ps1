@@ -9,6 +9,15 @@ $appExe = 'C:\Program Files\NVIDIA Corporation\NVIDIA App\CEF\NVIDIA App.exe'
 $programData = [Environment]::GetFolderPath(
     [Environment+SpecialFolder]::CommonApplicationData
 )
+$windowsDirectory = [Environment]::GetFolderPath(
+    [Environment+SpecialFolder]::Windows
+)
+$systemPowerShell = Join-Path `
+    $windowsDirectory `
+    'System32\WindowsPowerShell\v1.0\powershell.exe'
+if (-not (Test-Path -LiteralPath $systemPowerShell -PathType Leaf)) {
+    throw 'The fixed System32 Windows PowerShell executable is missing.'
+}
 $installRoot = Join-Path $programData 'NVIDIAAppOCuLinkDriverShim'
 $runtimeRoot = Join-Path $installRoot 'runtime'
 $statePath = Join-Path $installRoot 'state.json'
@@ -344,7 +353,7 @@ if (-not $ElevatedPhase) {
         '-ServiceBinary', "`"$resolvedBinary`""
     )
     $process = Start-Process `
-        -FilePath 'powershell.exe' `
+        -FilePath $systemPowerShell `
         -Verb RunAs `
         -ArgumentList $arguments `
         -WindowStyle Hidden `

@@ -42,8 +42,8 @@ Official release packages require valid, timestamped Authenticode signatures
 from one expected publisher on the Windows launcher, service executable,
 maintenance manifest, and every packaged PowerShell installer/module file. The
 signed release workflow also publishes GitHub/Sigstore provenance attestations
-for the ZIP and checksum sidecar. Public packages do not contain the legacy
-unsigned `.cmd` entry points.
+for the ZIP and checksum sidecar. Official signed packages do not contain the
+legacy unsigned `.cmd` entry points.
 
 The launcher is a self-contained x64 NativeAOT executable, so adjacent CLR
 configuration, startup-hook, or profiler inputs cannot run before its trust
@@ -66,4 +66,17 @@ but only for deterministic self-tests and read-only status inspection. The
 launcher refuses privileged maintenance when unsigned. A present-but-invalid
 or untrusted signature fails closed; it cannot fall back to unsigned
 development mode. Unsigned builds must not be redistributed as end-user
-releases.
+releases that claim a verified publisher or the signed-launcher maintenance
+boundary.
+
+An explicitly marked unsigned prerelease may include the fixed six-file batch
+entry-point set under `installer` for advanced testing. That mode is mutually
+exclusive with signature-required packaging. Its `.cmd` files launch unsigned
+PowerShell maintenance scripts outside the NativeAOT launcher's signature,
+secure-staging, and same-publisher checks; the UAC dialog identifies Windows
+PowerShell rather than this project. Both the batch host and script
+self-elevation resolve the fixed Known Folder/System32 Windows PowerShell, not
+the current directory or `PATH`. The signer rejects preview markers, flags, and
+`.cmd` files before loading a certificate. The ZIP warning, SHA-256 sidecar,
+exact package allowlist, and CI negative tests reduce accidental misuse but do
+not provide publisher trust.

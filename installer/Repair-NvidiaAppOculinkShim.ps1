@@ -8,6 +8,15 @@ $ErrorActionPreference = 'Stop'
 $programData = [Environment]::GetFolderPath(
     [Environment+SpecialFolder]::CommonApplicationData
 )
+$windowsDirectory = [Environment]::GetFolderPath(
+    [Environment+SpecialFolder]::Windows
+)
+$systemPowerShell = Join-Path `
+    $windowsDirectory `
+    'System32\WindowsPowerShell\v1.0\powershell.exe'
+if (-not (Test-Path -LiteralPath $systemPowerShell -PathType Leaf)) {
+    throw 'The fixed System32 Windows PowerShell executable is missing.'
+}
 $profilePath = Join-Path $programData (
     'NVIDIA Corporation\NVIDIA App\UpdateFramework\' +
     'profile-catalog\component_profiles.json'
@@ -221,7 +230,7 @@ if (-not $ElevatedPhase) {
         '-ServiceBinary', "`"$resolvedBinary`""
     )
     $process = Start-Process `
-        -FilePath 'powershell.exe' `
+        -FilePath $systemPowerShell `
         -Verb RunAs `
         -ArgumentList $arguments `
         -WindowStyle Hidden `

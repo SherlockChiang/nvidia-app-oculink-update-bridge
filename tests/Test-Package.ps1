@@ -6,6 +6,7 @@ param(
     [string]$ArchivePath,
     [switch]$RequireSignature,
     [switch]$RequireTimestamp,
+    [switch]$ExpectInstallerBatchFiles,
     [string]$UntrustedTestRootCertificatePath,
     [string]$ExpectedTestSignerThumbprint
 )
@@ -67,6 +68,26 @@ $reparsePoints = @(
 if ($reparsePoints.Count -gt 0) {
     throw "The package contains a reparse point: $($reparsePoints[0].FullName)"
 }
+$installerBatchScripts = [ordered]@{
+    'installer\Install-NvidiaAppOculinkShim.cmd' =
+        'Install-NvidiaAppOculinkShim.ps1'
+    'installer\Migrate-V3ToV4.cmd' = 'Migrate-V3ToV4.ps1'
+    'installer\Repair-NvidiaAppOculinkShim.cmd' =
+        'Repair-NvidiaAppOculinkShim.ps1'
+    'installer\Setup.cmd' = 'Setup.ps1'
+    'installer\Status.cmd' = 'Status.ps1'
+    'installer\Uninstall-NvidiaAppOculinkShim.cmd' =
+        'Uninstall-NvidiaAppOculinkShim.ps1'
+}
+if (
+    $ExpectInstallerBatchFiles -and
+    ($RequireSignature -or $RequireTimestamp)
+) {
+    throw (
+        'Installer batch entry points are forbidden in a signed package. ' +
+        'Use the NativeAOT launcher for trusted releases.'
+    )
+}
 $requiredFiles = @(
     'NvidiaAppOculinkUpdateBridge.exe',
     'Install-NvidiaAppOculinkShim.ps1',
@@ -91,6 +112,10 @@ $requiredFiles = @(
     'BUILD-INFO.txt',
     'SHA256SUMS.txt'
 )
+if ($ExpectInstallerBatchFiles) {
+    $requiredFiles += 'UNSIGNED-PREVIEW.txt'
+    $requiredFiles += @($installerBatchScripts.Keys)
+}
 foreach ($relative in $requiredFiles) {
     $candidate = Join-Path $package $relative
     if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
@@ -115,8 +140,9 @@ foreach ($file in $allPackageFiles) {
 }
 
 $buildInfoPath = Join-Path $package 'BUILD-INFO.txt'
+$buildInfoLines = Get-Content -LiteralPath $buildInfoPath
 $buildVersionLines = @(
-    Get-Content -LiteralPath $buildInfoPath |
+    $buildInfoLines |
         Where-Object { $_ -match '^Version: (.+)$' }
 )
 if ($buildVersionLines.Count -ne 1) {
@@ -126,6 +152,83 @@ $packageVersion = $buildVersionLines[0].Substring('Version: '.Length)
 & (Join-Path $repositoryRoot 'build\Assert-SemVer.ps1') `
     -Version $packageVersion |
     Out-Null
+$expectedBatchFlag =
+    $ExpectInstallerBatchFiles.ToString().ToLowerInvariant()
+$batchFlagLines = @(
+    $buildInfoLines | Where-Object {
+        $_ -eq "Installer-Batch-Files-Included: $expectedBatchFlag"
+    }
+)
+if ($batchFlagLines.Count -ne 1) {
+    throw 'BUILD-INFO does not match the expected installer-batch package mode.'
+}
+if ($ExpectInstallerBatchFiles) {
+    $previewMarkerPath = Join-Path $package 'UNSIGNED-PREVIEW.txt'
+    $previewMarker = Get-Content -LiteralPath $previewMarkerPath -Raw
+    foreach ($requiredWarning in @(
+        'UNSIGNED INSTALLER-BATCH PREVIEW',
+        "Version: $packageVersion",
+        'This package is not Authenticode signed.',
+        'installer\Setup.cmd',
+        'Do not redistribute this preview as a trusted or production-ready installer.'
+    )) {
+        if ($previewMarker.IndexOf(
+            $requiredWarning,
+            [StringComparison]::Ordinal
+        ) -lt 0) {
+            throw "The unsigned preview warning is incomplete: $requiredWarning"
+        }
+    }
+    foreach ($entry in $installerBatchScripts.GetEnumerator()) {
+        $batchContent = Get-Content `
+            -LiteralPath (Join-Path $package $entry.Key) `
+            -Raw
+        $expectedParentFallback =
+            'set "bridge_script=%~dp0..\' + $entry.Value + '"'
+        foreach ($requiredBatchLine in @(
+            'setlocal DisableDelayedExpansion',
+            'set "bridge_powershell=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"',
+            $expectedParentFallback,
+            '"%bridge_powershell%" -NoProfile -ExecutionPolicy Bypass -File "%bridge_script%"'
+        )) {
+            if ($batchContent.IndexOf(
+                $requiredBatchLine,
+                [StringComparison]::OrdinalIgnoreCase
+            ) -lt 0) {
+                throw (
+                    "Packaged batch entry point is unsafe for $($entry.Value): " +
+                    $requiredBatchLine
+                )
+            }
+        }
+    }
+}
+$selfElevatingScripts = @(
+    'Install-NvidiaAppOculinkShim.ps1',
+    'Migrate-V3ToV4.ps1',
+    'Repair-NvidiaAppOculinkShim.ps1',
+    'Uninstall-NvidiaAppOculinkShim.ps1'
+)
+foreach ($relative in $selfElevatingScripts) {
+    $scriptContent = Get-Content `
+        -LiteralPath (Join-Path $package $relative) `
+        -Raw
+    foreach ($requiredSystemHostToken in @(
+        '[Environment+SpecialFolder]::Windows',
+        'System32\WindowsPowerShell\v1.0\powershell.exe',
+        '-FilePath $systemPowerShell'
+    )) {
+        if ($scriptContent.IndexOf(
+            $requiredSystemHostToken,
+            [StringComparison]::Ordinal
+        ) -lt 0) {
+            throw "$relative does not pin its elevated Windows PowerShell host."
+        }
+    }
+    if ($scriptContent -match '(?i)-FilePath\s+[''"]powershell\.exe') {
+        throw "$relative still resolves its elevated host through PATH."
+    }
+}
 
 $maintenanceRelativePaths = @(
     'Install-NvidiaAppOculinkShim.ps1',
@@ -483,6 +586,22 @@ if (-not $actualSignablePaths.SetEquals($expectedSignablePaths)) {
     throw 'The package signable file set does not match its explicit allowlist.'
 }
 $signatureByPath = @{}
+if ($ExpectInstallerBatchFiles) {
+    foreach ($file in $signedFiles) {
+        $signature = Get-AuthenticodeSignature -LiteralPath $file.FullName
+        $signatureByPath[$file.FullName] = $signature
+        if (
+            $signature.Status -ne 'NotSigned' -or
+            $signature.SignerCertificate -or
+            $signature.TimeStamperCertificate
+        ) {
+            throw (
+                'The installer-batch preview must be consistently unsigned: ' +
+                $file.Name
+            )
+        }
+    }
+}
 if ($RequireTimestamp) {
     $RequireSignature = $true
 }

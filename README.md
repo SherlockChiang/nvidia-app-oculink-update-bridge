@@ -39,7 +39,10 @@ read the [signed GitHub release guide](docs/github-release.zh-CN.md).
 ## Win11 package
 
 Build output is an x64 ZIP. Both the service and native Windows launcher are
-self-contained; users do not install a separate runtime. After extraction:
+self-contained; users do not install a separate runtime. The following steps
+apply to a trusted signed package. The current `v4.1.0-rc.1` unsigned
+prerelease uses the installer-batch path documented in the next subsection.
+After extraction:
 
 1. Double-click `NvidiaAppOculinkUpdateBridge.exe` and choose **Set up or
    upgrade**.
@@ -61,17 +64,35 @@ packaged PowerShell installer/module have valid matching Authenticode
 signatures. It also creates GitHub/Sigstore provenance attestations for the ZIP
 and its checksum file.
 
-For GitHub Releases, verify both the published SHA-256 manifest and the
-Authenticode signature before approving UAC. Do not install binaries attached
-to issues or supplied by third parties.
+For trusted signed GitHub Releases, verify both the published SHA-256 manifest
+and the Authenticode signature before approving UAC. Do not install binaries
+attached to issues or supplied by third parties.
+
+### `v4.1.0-rc.1` unsigned installer-batch preview
+
+This prerelease is an advanced-user preview without a trusted Authenticode
+publisher. Verify the ZIP SHA-256, extract it, and start setup from a normal
+user session with `installer\Setup.cmd`. Status, repair, and uninstall batch
+entry points are in the same directory. The unsigned NativeAOT launcher still
+refuses privileged maintenance by design, so this preview uses the batch entry
+points instead.
+
+Those entry points start the project's unsigned PowerShell scripts and request
+UAC themselves. The UAC dialog identifies Windows PowerShell, not a verified
+publisher for this project. Both launches resolve the fixed System32 Windows
+PowerShell rather than the current directory or `PATH`. Review the scripts
+before use and do not redistribute this preview as a trusted or
+production-ready installer.
 
 The launcher elevates the same signed executable, copies an exact maintenance
 allowlist to an Administrator/SYSTEM-only staging directory, and revalidates
 WinVerifyTrust, signer identity, version, and signed-manifest hashes before it
 starts the fixed system Windows PowerShell. Native static/dynamic DLL loading is
 System32-scoped, and a file-identity-checked read lease prevents replacement of
-the verified launcher before UAC creates the elevated child. Public packages do
-not include the legacy `.cmd` entry points.
+the verified launcher before UAC creates the elevated child. Normal and signed
+packages do not include the legacy `.cmd` entry points. Only the explicit
+unsigned-preview package mode adds the fixed six-file set under `installer`,
+together with a prominent warning.
 
 ## Developer commands
 

@@ -16,7 +16,8 @@
 
 ## 使用
 
-从 GitHub Releases 下载 Win11 x64 ZIP，解压后：
+可信签名版从 GitHub Releases 下载 Win11 x64 ZIP，解压后按以下方式使用。当前
+`v4.1.0-rc.1` unsigned prerelease 不适用此维护入口，请直接看下一小节。
 
 1. 双击 `NvidiaAppOculinkUpdateBridge.exe`；
 2. 选择“安装或升级”，并批准一次由同一启动器发起的 UAC；
@@ -27,6 +28,18 @@
 
 启动器会自动判断首次安装、从 v3 迁移或修复/升级 v4。后台服务和 x64 NativeAOT
 图形启动器均为自包含程序，不要求用户另装运行库。
+
+### `v4.1.0-rc.1` 未签名批处理预览
+
+该 prerelease 按高级用户预览方式提供，尚无可信 Authenticode 发布者。核对 ZIP 的
+SHA-256 并解压后，从普通用户会话双击 `installer\Setup.cmd`；状态、修复和卸载入口也
+在同一目录。未签名 NativeAOT 启动器仍会按设计拒绝提权维护，因此该预览必须通过
+批处理入口操作。
+
+批处理会启动项目中的未签名 PowerShell 脚本并自行请求 UAC；UAC 显示的是 Windows
+PowerShell，而不是本项目的已验证发布者。宿主固定为 System32 Windows PowerShell，
+不会从当前目录或 `PATH` 解析。使用前应审查脚本，不要把此预览包描述或转发为受信任
+的正式安装包。
 
 ## 安全设计
 
@@ -47,7 +60,8 @@
 本项目与 NVIDIA Corporation 无隶属、背书或合作关系。NVIDIA、GeForce 和
 NVIDIA App 是其各自权利人的商标。
 
-安装前请确认 Release 资产的 SHA-256 和代码签名。CI 构件与本地构建默认不签名，
+安装可信签名 Release 前请同时确认资产的 SHA-256 和代码签名。CI 构件与本地构建
+默认不签名，
 仅适合自测和只读状态检查；未签名启动器拒绝执行提权维护。`Signed release` 工作流
 要求启动器、服务 EXE、维护清单和所有
 PowerShell 安装脚本/模块的同一签名均为 `Valid`，并为 ZIP 与哈希文件生成
@@ -56,7 +70,8 @@ GitHub/Sigstore 构建来源证明。
 启动器以自身签名身份请求 UAC，把固定维护白名单复制到仅 Administrator/SYSTEM 可写
 的随机暂存目录，并在运行固定系统 PowerShell 前再次校验 WinVerifyTrust、同一签名者、
 版本和受签名清单中的 SHA-256。静态/动态 DLL 加载均限定到 System32；验签后到 UAC
-创建管理员子进程期间，启动器还会持有并核对自身文件租约，阻止路径替换。公开 ZIP
-不再包含旧 `.cmd` 入口。
+创建管理员子进程期间，启动器还会持有并核对自身文件租约，阻止路径替换。普通包和
+签名包不包含旧 `.cmd` 入口；只有显式 unsigned preview 模式会在 `installer` 子目录
+加入固定的 6 个批处理，并附带风险说明。
 
 本项目采用 [MIT License](LICENSE)。

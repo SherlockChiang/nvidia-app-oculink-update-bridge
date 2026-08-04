@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$Version = '4.0.0',
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+    [switch]$IncludeInstallerBatchFiles
 )
 
 $ErrorActionPreference = 'Stop'
@@ -162,6 +163,43 @@ foreach ($installerFile in $installerFiles) {
         -LiteralPath (Join-Path $repositoryRoot (Join-Path 'installer' $installerFile)) `
         -Destination $packageRoot
 }
+if ($IncludeInstallerBatchFiles) {
+    $installerBatchRoot = Join-Path $packageRoot 'installer'
+    New-Item -ItemType Directory -Path $installerBatchRoot -Force |
+        Out-Null
+    $installerBatchFiles = @(
+        'Install-NvidiaAppOculinkShim.cmd',
+        'Migrate-V3ToV4.cmd',
+        'Repair-NvidiaAppOculinkShim.cmd',
+        'Setup.cmd',
+        'Status.cmd',
+        'Uninstall-NvidiaAppOculinkShim.cmd'
+    )
+    foreach ($installerBatchFile in $installerBatchFiles) {
+        Copy-Item `
+            -LiteralPath (
+                Join-Path `
+                    $repositoryRoot `
+                    (Join-Path 'installer' $installerBatchFile)
+            ) `
+            -Destination $installerBatchRoot
+    }
+    [IO.File]::WriteAllLines(
+        (Join-Path $packageRoot 'UNSIGNED-PREVIEW.txt'),
+        @(
+            'UNSIGNED INSTALLER-BATCH PREVIEW',
+            '',
+            "Version: $Version",
+            'This package is not Authenticode signed.',
+            'The installer\*.cmd entry points bypass the signed NativeAOT maintenance trust boundary.',
+            'Windows PowerShell, rather than this project, will appear in the UAC prompt.',
+            'Review the scripts and verify the published ZIP SHA-256 before use.',
+            'For setup or upgrade, open installer\Setup.cmd from a normal user session.',
+            'Do not redistribute this preview as a trusted or production-ready installer.'
+        ),
+        [Text.UTF8Encoding]::new($false)
+    )
+}
 Copy-Item `
     -LiteralPath (Join-Path $repositoryRoot 'README.md') `
     -Destination $packageRoot
@@ -199,6 +237,7 @@ if ($LASTEXITCODE -ne 0 -or $dotnetSdk -notmatch '^\d+\.\d+\.\d+') {
         "Dotnet-SDK: $dotnetSdk",
         'Service-Runtime: win-x64 self-contained',
         'Launcher-Runtime: Win11 x64 NativeAOT self-contained',
+        "Installer-Batch-Files-Included: $($IncludeInstallerBatchFiles.ToString().ToLowerInvariant())",
         'Driver-Payloads-Included: false'
     ),
     [Text.UTF8Encoding]::new($false)
@@ -224,4 +263,5 @@ if ($packageVerification.ExitCode -ne 0) {
 
 & (Join-Path $PSScriptRoot 'Finalize-Package.ps1') `
     -PackagePath $packageRoot `
-    -ArchivePath $archivePath
+    -ArchivePath $archivePath `
+    -IncludeInstallerBatchFiles:$IncludeInstallerBatchFiles

@@ -6,6 +6,7 @@ param(
     [string]$ArchivePath,
     [switch]$RequireSignature,
     [switch]$RequireTimestamp,
+    [switch]$IncludeInstallerBatchFiles,
     [string]$UntrustedTestRootCertificatePath,
     [string]$ExpectedTestSignerThumbprint
 )
@@ -89,6 +90,65 @@ if ($reparsePoints.Count -gt 0) {
     throw "The package contains a reparse point: $($reparsePoints[0].FullName)"
 }
 
+$installerBatchRelativePaths = @(
+    'installer\Install-NvidiaAppOculinkShim.cmd',
+    'installer\Migrate-V3ToV4.cmd',
+    'installer\Repair-NvidiaAppOculinkShim.cmd',
+    'installer\Setup.cmd',
+    'installer\Status.cmd',
+    'installer\Uninstall-NvidiaAppOculinkShim.cmd'
+)
+$actualInstallerBatchPaths = [Collections.Generic.HashSet[string]]::new(
+    [StringComparer]::OrdinalIgnoreCase
+)
+$actualInstallerBatchFiles = @(
+    Get-ChildItem -LiteralPath $package -Recurse -File |
+        Where-Object Extension -eq '.cmd'
+)
+foreach ($file in $actualInstallerBatchFiles) {
+    $actualInstallerBatchPaths.Add(
+        $file.FullName.Substring($package.Length + 1)
+    ) | Out-Null
+}
+$expectedInstallerBatchPaths = [Collections.Generic.HashSet[string]]::new(
+    [StringComparer]::OrdinalIgnoreCase
+)
+foreach ($relative in $installerBatchRelativePaths) {
+    $expectedInstallerBatchPaths.Add($relative) | Out-Null
+}
+$previewMarker = Join-Path $package 'UNSIGNED-PREVIEW.txt'
+$expectedBatchFlag = $IncludeInstallerBatchFiles.ToString().ToLowerInvariant()
+$buildInfo = Get-Content -LiteralPath (Join-Path $package 'BUILD-INFO.txt')
+$batchFlagLines = @(
+    $buildInfo | Where-Object {
+        $_ -eq "Installer-Batch-Files-Included: $expectedBatchFlag"
+    }
+)
+if ($batchFlagLines.Count -ne 1) {
+    throw 'BUILD-INFO does not match the installer-batch package mode.'
+}
+if ($IncludeInstallerBatchFiles) {
+    if ($RequireSignature -or $RequireTimestamp) {
+        throw (
+            'Installer batch entry points are forbidden in a signed package. ' +
+            'Use the NativeAOT launcher for trusted releases.'
+        )
+    }
+    if (-not $actualInstallerBatchPaths.SetEquals(
+        $expectedInstallerBatchPaths
+    )) {
+        throw 'The installer batch file set does not match its explicit allowlist.'
+    }
+    if (-not (Test-Path -LiteralPath $previewMarker -PathType Leaf)) {
+        throw 'The unsigned preview warning is missing.'
+    }
+} elseif (
+    $actualInstallerBatchPaths.Count -ne 0 -or
+    (Test-Path -LiteralPath $previewMarker)
+) {
+    throw 'Installer batch files or preview warnings require the explicit preview switch.'
+}
+
 $signableRelativePaths = @(
     'NvidiaAppOculinkUpdateBridge.exe',
     'payload\NvidiaAppOculinkShim.exe',
@@ -112,6 +172,22 @@ $signableFiles = @(
     }
 )
 $signatureByPath = @{}
+if ($IncludeInstallerBatchFiles) {
+    foreach ($file in $signableFiles) {
+        $signature = Get-AuthenticodeSignature -LiteralPath $file.FullName
+        $signatureByPath[$file.FullName] = $signature
+        if (
+            $signature.Status -ne 'NotSigned' -or
+            $signature.SignerCertificate -or
+            $signature.TimeStamperCertificate
+        ) {
+            throw (
+                'The installer-batch preview must be consistently unsigned: ' +
+                $file.Name
+            )
+        }
+    }
+}
 if ($RequireTimestamp) {
     $RequireSignature = $true
 }

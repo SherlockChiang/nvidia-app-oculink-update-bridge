@@ -15,12 +15,12 @@ CI 在普通 push 和 pull request 上生成未签名 ZIP，仅供自动化验�
 指纹移除临时 CA 证书并删除 CER/PFX。正式 Release 不走测试门禁，仍强制
 `Valid`、预配置叶证书指纹和时间戳。
 
-正式 GitHub Release 只由手动 `Signed release` 工作流创建。该工作流会重新构建、
+可信正式 GitHub Release 只由手动 `Signed release` 工作流创建。该工作流会重新构建、
 运行本地自测和 NVIDIA 在线元数据集成测试、签名图形启动器、服务 EXE 及所有
 PowerShell 维护文件、验证 Authenticode、重建 ZIP、逐文件验证 SHA-256，并生成
 GitHub/Sigstore 来源证明，最后才创建 `v<version>` Release。
 
-公开包不包含 Windows 无法 Authenticode 签名的 `.cmd` 入口。启动器、服务和八个
+可信正式包不包含 Windows 无法 Authenticode 签名的 `.cmd` 入口。启动器、服务和八个
 维护脚本/模块先签名；随后生成记录这些“签名后字节”的
 `MaintenanceManifest.ps1`，并最后签名该清单。启动器提权后把精确白名单复制到仅
 Administrator/SYSTEM 可写的随机暂存目录，再验证 WinVerifyTrust、同一叶证书、
@@ -62,6 +62,33 @@ gh attestation verify .\NvidiaAppOculinkUpdateBridge-<version>-win-x64.zip `
 
 签名证书缺失、在线集成失败、签名状态不是 `Valid`、清单不完整或任一文件哈希不符
 时，工作流都会在创建 Release 之前停止。
+
+## 未签名 installer-batch prerelease
+
+维护者可在用户明确接受风险时创建高级用户预览，但必须使用 prerelease，且标题、说明
+和 ZIP 内的 `UNSIGNED-PREVIEW.txt` 都要声明没有可信 Authenticode 发布者：
+
+```powershell
+$version = '4.1.0-rc.1'
+.\build\Publish-Package.ps1 `
+  -Version $version -IncludeInstallerBatchFiles
+$name = "NvidiaAppOculinkUpdateBridge-$version-win-x64"
+.\tests\Test-Package.ps1 `
+  -PackagePath ".\artifacts\package\$name" `
+  -ArchivePath ".\artifacts\$name.zip" `
+  -ExpectInstallerBatchFiles
+```
+
+该模式只在 `installer` 子目录加入固定 6 个 `.cmd`，并与 `-RequireSignature`、时间戳
+及临时签名测试模式互斥。批处理绕过 NativeAOT 启动器的同发布者验签和安全暂存链，
+因此 UAC 只能识别 Windows PowerShell，不能证明脚本来自本项目。它不生成签名发布的
+GitHub/Sigstore 来源证明，也不能被改名为 stable 或“受信任安装包”。取得可信证书后
+必须回到 `Signed release` 工作流，正式包继续排除 `.cmd`。
+
+批处理和脚本自提权都固定解析 Windows Known Folder 下的 System32 Windows
+PowerShell，不允许当前目录或 `PATH` 替换宿主。`Sign-Package.ps1` 会在读取 PFX 前
+拒绝 preview marker、`BUILD-INFO` preview 标志或任何 `.cmd`；CI 还覆盖漏传 preview
+开关、签名与 preview 混用、额外批处理和逐层移除 marker/批处理后的负向测试。
 
 ## 首次建库后的 GitHub 设置
 

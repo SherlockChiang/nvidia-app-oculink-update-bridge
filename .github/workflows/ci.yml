@@ -82,6 +82,20 @@ jobs:
           .\tests\Test-Package.ps1 `
             -PackagePath ".\artifacts\package\$name" `
             -ArchivePath ".\artifacts\$name.zip"
+          .\build\Publish-Package.ps1 `
+            -Version $version -SkipBuild -IncludeInstallerBatchFiles
+          .\tests\Test-Package.ps1 `
+            -PackagePath ".\artifacts\package\$name" `
+            -ArchivePath ".\artifacts\$name.zip" `
+            -ExpectInstallerBatchFiles
+          .\tests\Test-InstallerBatchPackageMode.ps1 `
+            -PackagePath ".\artifacts\package\$name" `
+            -ArchivePath ".\artifacts\$name.zip"
+          # Leave the uploaded CI artifact in the stricter launcher-only mode.
+          .\build\Publish-Package.ps1 -Version $version -SkipBuild
+          .\tests\Test-Package.ps1 `
+            -PackagePath ".\artifacts\package\$name" `
+            -ArchivePath ".\artifacts\$name.zip"
 
       - name: Exercise package-signing gate with an ephemeral certificate
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'

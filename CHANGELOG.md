@@ -5,6 +5,8 @@ All notable changes to this project are documented in this file. Versions use
 
 ## Unreleased
 
+## 4.1.0-rc.1 - 2026-08-04
+
 ### Added
 
 - Add a self-contained x64 NativeAOT Win11 GUI launcher for setup/upgrade,
@@ -12,6 +14,8 @@ All notable changes to this project are documented in this file. Versions use
   signable executable without a CLR pre-main loading surface.
 - Add a signed maintenance manifest that binds the exact privileged file set
   to its package version, lengths, and post-signing SHA-256 values.
+- Add an explicit unsigned installer-batch preview package mode with six
+  legacy `.cmd` entry points under the `installer` subdirectory.
 
 ### Changed
 
@@ -19,8 +23,8 @@ All notable changes to this project are documented in this file. Versions use
   manually dispatched CI runs while keeping signed releases fully gated.
 - Give signed releases enough time for Windows trust validation, while bounding
   the certificate-bearing step separately and cleaning its temporary PFX.
-- Remove unsigned `.cmd` entry points from public ZIPs; they remain in source
-  only for legacy development workflows.
+- Keep unsigned `.cmd` entry points out of normal and signed ZIPs; the explicit
+  preview mode includes them only under `installer` with a prominent warning.
 - Return NVIDIA App to the current user session after successful GUI maintenance.
 
 ### Security
@@ -40,6 +44,13 @@ All notable changes to this project are documented in this file. Versions use
 - Force static and dynamic DLL resolution to System32 before managed entry, and
   hold a file-identity-checked read lease across validation and UAC startup so
   the launcher path cannot be replaced after trust is established.
+- Make installer-batch preview mode mutually exclusive with signature-required
+  packaging, make the signer reject preview markers/flags/commands before it
+  loads a certificate, require an exact batch allowlist, and test positive and
+  fail-closed package paths in CI. Batch entry points and their self-elevation
+  resolve the fixed System32 Windows PowerShell instead of `PATH`; they still
+  remain outside the signed launcher trust boundary and are for advanced
+  preview testing only.
 
 ## 4.0.0 - 2026-08-03
 
