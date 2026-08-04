@@ -23,7 +23,7 @@ All notable changes to this project are documented in this file. Versions use
   translated README from installer ZIPs.
 - Remove the retired `legacy-v3` source snapshot and three redundant internal
   action batch wrappers from the active tree. The old implementation remains
-  available from Git history and the `v4.1.0-rc.1` tag.
+  available from Git history.
 
 ### Security
 

@@ -15,9 +15,8 @@ App are trademarks of their respective owners.
 
 ## Current status
 
-- The retired v3 implementation remains available in Git history and the
-  [`v4.1.0-rc.1` tag](https://github.com/SherlockChiang/nvidia-app-oculink-update-bridge/tree/v4.1.0-rc.1/legacy-v3),
-  but is no longer carried in the active source tree.
+- The retired v3 implementation is no longer carried in the active source
+  tree. Its investigation history remains available through Git history.
 - A dependency-free .NET service implementation lives under
   [`src/NvidiaAppOculinkShim`](src/NvidiaAppOculinkShim). It compiles without
   third-party NuGet packages and includes direct Windows SCM integration.
